@@ -56,6 +56,16 @@ void iot_os_thread_delete(iot_os_thread thread_handle)
 	vTaskDelete(thread_handle);
 }
 
+void iot_task_suspend(iot_os_thread handler)
+{
+	vTaskSuspend(handler);
+}
+
+void iot_task_resume(iot_os_thread handler)
+{
+	vTaskResume(handler);
+}
+
 void iot_os_thread_yield()
 {
 	taskYIELD();

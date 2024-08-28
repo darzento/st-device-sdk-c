@@ -236,7 +236,7 @@ bool iot_nv_prov_data_exist(void)
 	memset(nv_status, 0, sizeof(nv_status));
 
 	/* CHECK IOT_NVD_WIFI_PROV_STATUS */
-	ret = _iot_nv_read_data(IOT_NVD_WIFI_PROV_STATUS, nv_status, sizeof(nv_status) - 1, NULL);
+	ret = _iot_nv_read_data(IOT_NVD_WIFI_PROV_STATUS, nv_status, sizeof(nv_status), NULL);
 	if (ret != IOT_ERROR_NONE) {
 		IOT_DEBUG("Wifi Prov Status : read failed");
 		IOT_DUMP(IOT_DEBUG_LEVEL_DEBUG, IOT_DUMP_NV_DATA_READ_FAIL, IOT_NVD_WIFI_PROV_STATUS, __LINE__);
@@ -251,7 +251,7 @@ bool iot_nv_prov_data_exist(void)
 	memset(nv_status, 0, sizeof(nv_status));
 
 	/* CHECK IOT_NVD_CLOUD_PROV_STATUS */
-	ret = _iot_nv_read_data(IOT_NVD_CLOUD_PROV_STATUS, nv_status, sizeof(nv_status) - 1, NULL);
+	ret = _iot_nv_read_data(IOT_NVD_CLOUD_PROV_STATUS, nv_status, sizeof(nv_status), NULL);
 	if (ret != IOT_ERROR_NONE) {
 		IOT_DEBUG("Cloud Prov Status : read failed");
 		IOT_DUMP(IOT_DEBUG_LEVEL_DEBUG, IOT_DUMP_NV_DATA_READ_FAIL, IOT_NVD_CLOUD_PROV_STATUS, __LINE__);

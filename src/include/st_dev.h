@@ -620,6 +620,10 @@ int st_conn_set_noti_cb(IOT_CTX *iot_ctx,
 int st_cap_cmd_set_cb(IOT_CAP_HANDLE *cap_handle, const char *cmd_type,
 		st_cap_cmd_cb cmd_cb, void *usr_data);
 
+void st_task_suspend(IOT_CTX* iot_ctx);
+void st_task_resume(IOT_CTX* iot_ctx);
+void st_conn_deinit(IOT_CTX* iot_ctx);
+
 /**
  * @brief	st-iot-core initialize function
  * @details	This function initializes st-iot-core for target

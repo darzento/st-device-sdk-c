@@ -303,6 +303,9 @@ unsigned int iot_os_timer_left_ms(iot_os_timer timer);
  */
 void iot_os_timer_destroy(iot_os_timer* timer);
 
+void iot_task_suspend(iot_os_thread handler);
+void iot_task_resume(iot_os_thread handler);
+
 #if defined(CONFIG_STDK_IOT_CORE_OS_SUPPORT_POSIX)
 /**
  * @brief	allocate memory

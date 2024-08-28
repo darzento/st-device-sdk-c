@@ -358,9 +358,6 @@ create_fail:
 	return ret;
 }
 
-
-
-
 STATIC_FUNCTION
 iot_error_t _delete_dev_card_by_usr(struct iot_context *ctx)
 {
@@ -986,7 +983,20 @@ static void _iot_main_task(struct iot_context *ctx)
 		}
 #endif
 		_do_cmd_tout_check(ctx);
+//		iot_os_delay(100);
 	}
+}
+
+void st_task_suspend(IOT_CTX* iot_ctx)
+{
+	struct iot_context* ctx = (struct iot_context*)iot_ctx;
+	iot_task_suspend(ctx->main_thread);
+}
+
+void st_task_resume(IOT_CTX* iot_ctx)
+{
+	struct iot_context* ctx = (struct iot_context*)iot_ctx;
+	iot_task_resume(ctx->main_thread);
 }
 
 IOT_CTX* st_conn_init(unsigned char *onboarding_config, unsigned int onboarding_config_len,
@@ -1173,6 +1183,34 @@ error_main_bsp_init:
 	free(ctx);
 
 	return NULL;
+}
+
+void st_conn_deinit(IOT_CTX* iot_ctx)
+{
+	struct iot_context* ctx = (struct iot_context*)iot_ctx;
+	iot_os_mutex_destroy(&ctx->st_conn_lock);
+	iot_os_mutex_destroy(&ctx->iot_cmd_lock);
+
+	iot_os_eventgroup_delete(ctx->iot_events);
+	iot_os_eventgroup_delete(ctx->usr_events);
+
+	iot_util_queue_delete(ctx->cmd_queue);
+
+	iot_api_device_info_mem_free(&(ctx->device_info));
+
+	iot_api_onboarding_config_mem_free(&(ctx->devconf));
+
+#if defined(CONFIG_STDK_IOT_CORE_LOG_FILE)
+	iot_log_file_exit();
+#endif
+	iot_nv_deinit();
+
+	iot_os_timer_destroy(&ctx->rate_limit_timeout);
+	iot_os_timer_destroy(&ctx->state_timer);
+
+	iot_os_thread_delete(ctx->main_thread);
+
+	free(ctx);
 }
 
 #define SET_STATUS_CB(cb, maps, usr_data) \
