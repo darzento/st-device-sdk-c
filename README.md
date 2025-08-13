@@ -10,6 +10,17 @@ We also provide examples so that so that you can refer to how this core device l
 
 It is distributed in source form and written in C99 for the purpose of portability to most platforms.
 
+## SmartThings SDK version 2.0 Release
+
+With the release of SmartThings SDK version 2.0, we decided to no longer support softAP-based ST app connections. 
+If you want to use softAP-based SmartThings SDK, you should use SmartThings SDK version 1.X. 
+The currently provided softAP-based SmartThings SDK can be used, but new feature upgrades are no longer planned to be supported for softAP-base SmartThings SDK.
+
+Because softAP-based devices have technical limitations in supporting the functions planned by SmartThings, we have released SmartThings SDK version 2.0, which provides BLE-based connection with SmartThings APP.
+If the chipset to be used in the product supports BLE, it is recommended to use a BLE-based SmartThings SDK.
+
+Using BLE is expected to not only support new SmartThings features, but also improve device search and connection stability with the SmartThings APP.
+
 ## Main features
 
 This core device library provides the following features :
@@ -30,43 +41,10 @@ After porting, you can use this library completely under the specific environmen
 
 ## Porting SmartThings SDK for Direct Connected Devices for C
 
-This core device library has platform-dependent directories. In current SDK version, those that must be ported are present in `src/port/bsp`, `src/port/net` and `src/port/os`.
-By default, we have already provided several implementations based on some operating systems(e.g. FreeRTOS, LINUX) and chipsets(e.g. ESPRESSIF, REALTEK, Raspberry Pi). These porting examples in those directories make it easier for you to port to additional chipsets and operating systems.
+This core device library has platform-dependent directories. In current SDK version, those that must be ported are present in `src/port`.
+By default, we have already provided several implementations based on some operating systems(e.g. FreeRTOS) and chipsets(e.g. ESPRESSIF). These porting examples in those directories make it easier for you to port to additional chipsets and operating systems.
 
 For instructions on how to port this SDK, please see the [Porting Guide](./doc/porting_guide.md).
-
-## Building SmartThings SDK for Direct Connected Devices for C
-
-This core device library should be built according to the chipset development environment to be applied. If this environment is not ready yet, you can build it in the POSIX environment based on Ubuntu as shown below.
-
-But, unlike the resource limited MCU devices, you can NOT check the onboarding process in the POSIX environment because it does not support a SoftAP function by default. Therefore, as a starting point of this SDK, we strongly recommend that you build one of the MCU device examples provided in `example` directory to use all features without limitations.
-
-### Prerequisites
-
-Basically, you can build this core device library through `cmake` in the Ubuntu.
-
-- `sudo apt-get install libssl-dev libpthread-stubs0-dev`
-
-### Build
-
-1. Clone the source code.
-
-   - Download the source code via `git clone`.
-
-     ```sh
-     $ git clone https://github.com/SmartThingsCommunity/st-device-sdk-c.git
-     ```
-
-2. Build a POSIX example application.
-
-   - Go to a example directory and then build.
-
-     ```sh
-     $ cd st-device-sdk-c/example/posix
-     $ cmake -B build
-     $ cd build
-     $ make
-     ```
 
 ## Git Branch Guide
 
@@ -75,6 +53,12 @@ We are managing two git branch categories. One is `develop` branch. The other is
 - `develop` branch : Latest devleoping features. Recommand for new feature test or POC.
 - `release/v{version}` branchs : Tested and stable branchs. Recommand for Commercial product.
 
+## Quick PoC development on Linux distribution
+
+You can build and test the SDK on your Linux distribution environment without real target board. In this way, you can easily make PoC demo for your product and check your IoT device feasibility on SmartThings platform. Also in real product developing, building and testing on Linux environment can accelerate product development speed.
+
+We provide `example/posix` example to demonstrate how to build and test the SDK on Linux distribution. But before running the example, you should acquire [Getting Started](./doc/getting_started.md) to be familiar with the SDK development process and register your test device profile on [Developer Workspace](https://developer.smartthings.com/workspace/). And this example skips onboarding(registering) process, so before test, you should register your device on the cloud manually with [manual onboarding tool](./tools/manual_onboarding/README.md) provided in `tools/manual_onboarding` folder.
+
 ## Learn more
 
 For more information, please review the following documents:
@@ -82,12 +66,16 @@ For more information, please review the following documents:
 - [Getting Started](./doc/getting_started.md) : It covers the overall workflow and detailed steps for starters to work with SDK.
 - [API References](./doc/APIs.md) : It provide all API reference that SDK offers.
 - [Commercialization Guide](./doc/Commercialization_Guide) : It provides guide for ones who consider commercializing their IoT products with SDK.
-- [Capabilities Reference](https://developer.smartthings.com/docs/devices/capabilities/capabilities) : This page serves as a reference for the supported capabilities.
-- [Developer Workspace](https://smartthings.developer.samsung.com/workspace/) : It provides functions related to device information registration and device integration in the SmartThings cloud.
+- [Capabilities Reference](https://developer.smartthings.com/docs/devices/capabilities/capabilities-reference) : This page serves as a reference for the supported capabilities.
+- [Developer Workspace](https://developer.smartthings.com/workspace/) : It provides functions related to device information registration and device integration in the SmartThings cloud.
 
-## Contact
+## Commercialization
 
-If you have any issue, or want to commercialize your IoT devices using this SDK, please contact stdk@samsung.com or open new issue.
+For commercialization, refer to the following [link](https://github.com/SmartThingsCommunity/st-device-sdk-c/blob/main/doc/Commercialization_Guide).
+
+If you have any issue, or want to commercialize your IoT devices using this SDK, please use the following contact point.
+- Commercializatioin : partners@smartthings.com
+- Technical inquiry : open new issue on Github
 
 ## License
 

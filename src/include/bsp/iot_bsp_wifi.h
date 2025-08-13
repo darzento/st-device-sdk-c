@@ -24,12 +24,13 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "iot_error.h"
 
 #define IOT_WIFI_MAX_SSID_LEN	(32)
 #define IOT_WIFI_MAX_PASS_LEN	(64)
 #define IOT_WIFI_MAX_BSSID_LEN (6)
-#define IOT_WIFI_MAX_SCAN_RESULT (20)
+#define IOT_WIFI_MAX_SCAN_RESULT (100)
 #define IOT_SOFT_AP_CHANNEL (1)
 #define IOT_WIFI_CMD_TIMEOUT	5000
 
@@ -92,6 +93,7 @@ typedef struct {
 	char pass[IOT_WIFI_MAX_PASS_LEN+1];		/**< @brief wifi password string */
 	uint8_t bssid[IOT_WIFI_MAX_BSSID_LEN];	/**< @brief wifi mac address */
 	iot_wifi_auth_mode_t authmode;			/**< @brief wifi authentication mode for station and softap*/
+	int wifi_candidate_frequency;			  /**< @brief the frequency of wifi candiate from st app*/
 } iot_wifi_conf;
 
 /**
@@ -199,6 +201,23 @@ void iot_bsp_wifi_clear_event_cb(void);
  */
 iot_wifi_auth_mode_bits_t iot_bsp_wifi_get_auth_mode(void);
 
+/**
+ * @brief Check DHCP operation is success
+ * @return true if DHCP operation is success
+*/
+bool iot_bsp_wifi_is_dhcp_success();
+
+/**
+ * @brief Get Wi-Fi connection status from wpa_supplicant.
+ * @details Get Wi-Fi status.
+ * @return IOT_ERROR_NONE if successful
+*/
+iot_error_t iot_bsp_wifi_get_status();
+
+/**
+ * @brief Connect to Wi-Fi
+ */
+void iot_bsp_wifi_connect(void);
 #ifdef __cplusplus
 }
 #endif

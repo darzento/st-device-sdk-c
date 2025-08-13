@@ -19,6 +19,7 @@
 #ifndef _IOT_SECURITY_COMMON_H_
 #define _IOT_SECURITY_COMMON_H_
 
+#include <string.h>
 #include <stdbool.h>
 #include "iot_security_error.h"
 
@@ -30,6 +31,7 @@ extern "C" {
 #define IOT_SECURITY_SECRET_LEN                 32
 #define IOT_SECURITY_IV_LEN                     16
 #define IOT_SECURITY_SHA256_LEN                 32
+#define IOT_SECURITY_SHA512_LEN                 64
 
 #define IOT_SECURITY_EC_SECKEY_LEN              32
 #define IOT_SECURITY_EC_PUBKEY_LEN              64

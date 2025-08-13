@@ -22,6 +22,8 @@
 #include <sys/time.h>
 #include <time.h>
 
+#include "esp_pm.h"
+
 #include "iot_main.h"
 #include "iot_internal.h"
 #include "iot_util.h"
@@ -36,6 +38,8 @@
 #if defined(STDK_IOT_CORE_SERIALIZE_CBOR)
 #include <cbor.h>
 #endif
+
+esp_pm_lock_handle_t mqtt_sleep_lock;
 
 gg_connection_request_status _check_connection_response(char *response_payload, size_t response_payload_len)
 {
@@ -318,6 +322,14 @@ void _iot_mqtt_registration_client_callback(st_mqtt_event event, void *event_dat
 				IOT_DEBUG("raw msg (len:%d) : %s", md->payloadlen, (char *)md->payload);
 				break;
 			}
+		case ST_MQTT_EVENT_DISCONNECTED:
+			{
+				/* retry registering when it disconnected after send resiger request */
+				if (ctx->curr_state == IOT_STATE_PROV_DONE && !ctx->iot_reg_data.updated &&
+						ctx->registered_msg_requested)
+			        iot_command_send(ctx, IOT_COMMAND_CLOUD_REGISTERING, NULL, 0);
+			}
+			break;
 		default:
 			IOT_WARN("No MQTT event handler for %d", event);
 			break;
@@ -441,11 +453,6 @@ void _iot_mqtt_signin_client_callback(st_mqtt_event event, void *event_data, voi
 		case ST_MQTT_EVENT_PUBLISH_FAILED:
 		case ST_MQTT_EVENT_PUBLISH_TIMEOUT:
 			{
-				if (event == ST_MQTT_EVENT_PUBLISH_FAILED) {
-					iot_set_st_ecode(ctx, IOT_ST_ECODE_CE40);
-				} else if (event == ST_MQTT_EVENT_PUBLISH_TIMEOUT) {
-					iot_set_st_ecode(ctx, IOT_ST_ECODE_CE41);
-				}
 				st_mqtt_msg *md = event_data;
 				char *mqtt_payload = md->payload;
 				iot_noti_data_t noti_data;
@@ -461,6 +468,21 @@ void _iot_mqtt_signin_client_callback(st_mqtt_event event, void *event_data, voi
 					&noti_data, sizeof(noti_data));
 				IOT_DEBUG("raw msg (len:%d) : %s", md->payloadlen, mqtt_payload);
 				break;
+			}
+			break;
+		case ST_MQTT_EVENT_DISCONNECTED:
+			{
+				st_mqtt_evt_dis_reason reason = (*(st_mqtt_evt_dis_reason *)event_data);
+				iot_error_t err;
+				if (reason == MQTT_DISCONNECTED_PING_FAIL) {
+					iot_set_st_ecode(ctx, IOT_ST_ECODE_CE32);
+				} else if (reason == MQTT_DISCONNECTED_PING_TIMEOUT) {
+					iot_set_st_ecode(ctx, IOT_ST_ECODE_CE33);
+				}
+				err = iot_state_update(ctx, IOT_STATE_CLOUD_DISCONNECTED, 0);
+				if (err) {
+				    IOT_WARN("iot_state_update failed(%d)", err);
+				}
 			}
 			break;
 		default:
@@ -871,10 +893,6 @@ void _iot_es_mqtt_disconnect(struct iot_context *ctx, st_mqtt_client target_cli)
 {
 	int ret;
 
-#if defined(STDK_MQTT_TASK)
-	st_mqtt_endtask(target_cli);
-#endif
-
 	/* Internal MQTT connection was disconnected,
 	 * even if it returns errors
 	 */
@@ -887,6 +905,26 @@ void _iot_es_mqtt_disconnect(struct iot_context *ctx, st_mqtt_client target_cli)
 iot_error_t _iot_es_mqtt_connect(struct iot_context *ctx, st_mqtt_client target_cli,
 		char *username, char *sign_data)
 {
+/**********************************************************************************************/
+	esp_err_t err = 0;
+
+	err = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "mqtt_lock", &mqtt_sleep_lock);
+	if (err != ESP_OK) {
+		IOT_ERROR("esp_pm_lock_create failed, error: %d", err);
+		return IOT_ERROR_BAD_REQ;
+	} else {
+		IOT_INFO("esp_pm_lock_create success : mqtt");
+	}
+
+	err = esp_pm_lock_acquire(mqtt_sleep_lock);
+	if (err != ESP_OK) {
+		IOT_ERROR("esp_pm_lock_acquire failed, error: %d", err);
+		return IOT_ERROR_BAD_REQ;
+	} else {
+		IOT_INFO("esp_pm_lock_acquire success : mqtt");
+	}
+/**********************************************************************************************/
+
 	st_mqtt_connect_data conn_data = st_mqtt_connect_data_initializer;
 	st_mqtt_broker_info_t broker_info;
 	int ret;
@@ -900,6 +938,23 @@ iot_error_t _iot_es_mqtt_connect(struct iot_context *ctx, st_mqtt_client target_
 	iot_ret = iot_get_random_id_str(client_id, sizeof(client_id));
 	if (iot_ret != IOT_ERROR_NONE) {
 		IOT_ERROR("Cannot get random_id for client_id");
+/**********************************************************************************************/
+		if (mqtt_sleep_lock) {
+			err = esp_pm_lock_release(mqtt_sleep_lock);
+			if (err != ESP_OK) {
+				IOT_ERROR("esp_pm_lock_release failed, error: %d", err);
+			} else {
+				IOT_INFO("esp_pm_lock_release success : mqtt");
+			}
+
+			err = esp_pm_lock_delete(mqtt_sleep_lock);
+			if (err != ESP_OK) {
+				IOT_ERROR("esp_pm_lock_delete failed, error: %d", err);
+			} else {
+				IOT_INFO("esp_pm_lock_delete success : mqtt");
+			}
+		}
+/**********************************************************************************************/
 		return iot_ret;
 	}
 
@@ -984,18 +1039,25 @@ iot_error_t _iot_es_mqtt_connect(struct iot_context *ctx, st_mqtt_client target_
 		ctx->mqtt_connect_critical_reject_count = 0;
 	}
 
-#if defined(STDK_MQTT_TASK)
-	if ((ret = st_mqtt_starttask(target_cli)) < 0) {
-		IOT_ERROR("Returned code from start tasks is %d", ret);
-		st_mqtt_disconnect(target_cli);
-		iot_ret = IOT_ERROR_MQTT_CONNECT_FAIL;
-		goto done_mqtt_connect;
-	} else {
-		IOT_INFO("Use MQTTStartTask");
-	}
-#endif
 
 done_mqtt_connect:
+/**********************************************************************************************/
+	if (mqtt_sleep_lock) {
+		err = esp_pm_lock_release(mqtt_sleep_lock);
+		if (err != ESP_OK) {
+			IOT_ERROR("esp_pm_lock_release failed, error: %d", err);
+		} else {
+			IOT_INFO("esp_pm_lock_release success : mqtt");
+		}
+
+		err = esp_pm_lock_delete(mqtt_sleep_lock);
+		if (err != ESP_OK) {
+			IOT_ERROR("esp_pm_lock_delete failed, error: %d", err);
+		} else {
+			IOT_INFO("esp_pm_lock_delete success : mqtt");
+		}
+	}
+/**********************************************************************************************/
 	if (root_cert)
 		free((void *)root_cert);
 
@@ -1008,7 +1070,7 @@ iot_error_t iot_es_connect(struct iot_context *ctx, int conn_type)
 	iot_wt_params_t wt_params = { 0 };
 	st_mqtt_client mqtt_cli = NULL;
 	iot_error_t iot_ret;
-	iot_os_timer connection_response_timer = NULL;
+	iot_os_timer_handle connection_response_timer = NULL;
 	int ret;
 
 	if (!ctx) {
@@ -1017,13 +1079,9 @@ iot_error_t iot_es_connect(struct iot_context *ctx, int conn_type)
 	}
 
 	if (ctx->rate_limit) {
-		if (!(iot_os_timer_isexpired(ctx->rate_limit_timeout))) {
-			unsigned int remaining_time = iot_os_timer_left_ms(ctx->rate_limit_timeout);
-			IOT_WARN("Server rate limit break times.. please wait %d seconds to connect", remaining_time/1000);
-			iot_os_delay(remaining_time);
-		}
+		IOT_WARN("Server rate limit break times.. please wai to connect");
+		return IOT_ERROR_MQTT_CONNECT_FAIL;
 	}
-	ctx->rate_limit = false;
 
 	iot_ret = iot_nv_get_serial_number((char **)&wt_params.sn, &wt_params.sn_len);
 	if (iot_ret != IOT_ERROR_NONE) {
@@ -1073,12 +1131,11 @@ iot_error_t iot_es_connect(struct iot_context *ctx, int conn_type)
 		goto out;
 	}
 
-	iot_ret = iot_os_timer_init(&connection_response_timer);
-	if (iot_ret != IOT_ERROR_NONE) {
-		IOT_WARN("Response timer init error(%d)", iot_ret);
-		iot_ret = IOT_ERROR_BAD_REQ;
-		goto out;
-	}
+	// if (iot_ret != IOT_ERROR_NONE) {
+	// 	IOT_WARN("Response timer init error(%d)", iot_ret);
+	// 	iot_ret = IOT_ERROR_BAD_REQ;
+	// 	goto out;
+	// }
 
 	if (conn_type == IOT_CONNECT_TYPE_COMMUNICATION) {
 		char* topicfilter[2] = {NULL, };
@@ -1097,6 +1154,7 @@ iot_error_t iot_es_connect(struct iot_context *ctx, int conn_type)
 		}
 
 		ctx->mqtt_connection_try_count++;
+		ctx->sign_in_connection_request_status = GG_CONNECTION_REQUEST_STATUS_WAITING;
 		iot_ret = _iot_es_mqtt_connect(ctx, mqtt_cli, (char *)ctx->iot_reg_data.deviceId, (char *)token_buf.p);
 		if (iot_ret != IOT_ERROR_NONE) {
 			IOT_ERROR("failed to connect");
@@ -1106,7 +1164,13 @@ iot_error_t iot_es_connect(struct iot_context *ctx, int conn_type)
 			IOT_INFO("MQTT connect success sucess/try : %d/%d", ctx->mqtt_connection_success_count, ctx->mqtt_connection_try_count);
 		}
 
-		iot_os_timer_count_ms(connection_response_timer, GG_CONNECTION_RESPONSE_TIMEOUT_MS);
+		connection_response_timer = iot_os_timer_create(NULL, GG_CONNECTION_RESPONSE_TIMEOUT_MS, NULL);
+		if (!connection_response_timer) {
+			iot_ret = IOT_ERROR_MQTT_CONNECT_FAIL;
+			IOT_ERROR("Failed to create connection response timer");
+			goto out;
+		}
+		iot_os_timer_start(connection_response_timer);
 
 		topicfilter[0] = iot_os_malloc(IOT_TOPIC_SIZE);
 		if (topicfilter[0] == NULL) {
@@ -1134,9 +1198,8 @@ iot_error_t iot_es_connect(struct iot_context *ctx, int conn_type)
 			goto mqtt_communication_connection_out;
 		}
 
-		ctx->sign_in_connection_request_status = GG_CONNECTION_REQUEST_STATUS_WAITING;
-		while(!iot_os_timer_isexpired(connection_response_timer) &&
-				st_mqtt_yield(mqtt_cli, 0) >= 0) {
+		while(iot_os_timer_is_active(connection_response_timer)) {
+			iot_os_delay(100);
 			if (ctx->sign_in_connection_request_status != GG_CONNECTION_REQUEST_STATUS_WAITING)
 				break;
 		}
@@ -1188,6 +1251,7 @@ mqtt_communication_connection_out:
 			goto out;
 		}
 
+		ctx->sign_up_connection_request_status = GG_CONNECTION_REQUEST_STATUS_WAITING;
 		iot_ret = _iot_es_mqtt_connect(ctx, mqtt_cli, serial_number, (char *)token_buf.p);
 		if (iot_ret != IOT_ERROR_NONE) {
 			IOT_ERROR("failed to connect");
@@ -1196,7 +1260,13 @@ mqtt_communication_connection_out:
 			IOT_INFO("MQTT connect success");
 		}
 
-		iot_os_timer_count_ms(connection_response_timer, GG_CONNECTION_RESPONSE_TIMEOUT_MS);
+		connection_response_timer = iot_os_timer_create(NULL, GG_CONNECTION_RESPONSE_TIMEOUT_MS, NULL);
+		if (!connection_response_timer) {
+			iot_ret = IOT_ERROR_MQTT_CONNECT_FAIL;
+			IOT_ERROR("Failed to create connection response timer");
+			goto out;
+		}
+		iot_os_timer_start(connection_response_timer);
 
 		/* register notification subscribe for registration */
 		topicfilter = iot_os_malloc(IOT_TOPIC_SIZE);
@@ -1215,9 +1285,8 @@ mqtt_communication_connection_out:
 			goto mqtt_registration_connection_out;
 		}
 
-		ctx->sign_up_connection_request_status = GG_CONNECTION_REQUEST_STATUS_WAITING;
-		while(!iot_os_timer_isexpired(connection_response_timer) &&
-				st_mqtt_yield(mqtt_cli, 0) >= 0) {
+		while(iot_os_timer_is_active(connection_response_timer)) {
+			iot_os_delay(100);
 			if (ctx->sign_up_connection_request_status != GG_CONNECTION_REQUEST_STATUS_WAITING)
 				break;
 		}
@@ -1246,7 +1315,7 @@ mqtt_registration_connection_out:
 
 out:
 	if (connection_response_timer)
-		iot_os_timer_destroy(&connection_response_timer);
+		iot_os_timer_delete(connection_response_timer);
 
 	if (wt_params.sn)
 		iot_os_free((void *)wt_params.sn);

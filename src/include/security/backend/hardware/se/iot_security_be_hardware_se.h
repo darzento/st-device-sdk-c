@@ -19,6 +19,7 @@
 #include "security/iot_security_error.h"
 #include "security/iot_security_storage.h"
 
+
 /**
  * @brief	Load key pair info and store to context
  * @details	Load public key(65 bytes raw type) and key type and store to security context
@@ -160,3 +161,6 @@ iot_error_t iot_security_be_hardware_se_storage_remove(iot_security_context_t *c
  * @return IOT_ERROR_NONE if successful
  */
 iot_error_t iot_security_be_hardware_se_generate_random(unsigned int len, unsigned char *random);
+
+iot_error_t iot_security_be_hardware_se_init(void);
+iot_error_t iot_security_be_hardware_se_deinit(void);

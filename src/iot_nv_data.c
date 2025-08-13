@@ -18,6 +18,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "iot_nv_data.h"
 #include "iot_bsp_fs.h"
@@ -842,6 +843,7 @@ iot_error_t iot_nv_get_certificate(iot_security_cert_id_t cert_id, char** cert, 
 	return IOT_ERROR_NONE;
 }
 
+#if defined(CONIFG_STDK_IOT_CORE_EASYSETUP_SELF_CONTAINED_JWT)
 static char *_iot_nv_trim_certificate(const char *cert, size_t cert_len)
 {
 	const char *certificate_prefix = "-----BEGIN CERTIFICATE-----";
@@ -961,6 +963,7 @@ iot_error_t _iot_nv_get_certificate_serial_number(char **cert_sn)
 	mbedtls_x509_crt_free(&cert);
 	return IOT_ERROR_NONE;
 }
+#endif
 
 iot_error_t iot_nv_get_device_id(char** device_id, size_t* len)
 {

@@ -1,4 +1,4 @@
 target_sources(iotcore
                PRIVATE
-               iot_net_mbedtls.c
+               port_net_mbedtls.c
                )

@@ -35,7 +35,7 @@ extern "C" {
 #define DLLExport
 #endif
 
-#define ST_MQTT_TCP_KEEPALIVE_IDLE	(300)		/**< @brief tcp keep alive idle with seconds unit */
+#define ST_MQTT_TCP_KEEPALIVE_IDLE	(120)		/**< @brief tcp keep alive idle with seconds unit */
 #define ST_MQTT_TCP_KEEPALIVE_COUNT	(3)		/**< @brief tcp keep alive count */
 #define ST_MQTT_TCP_KEEPALIVE_INTERVAL	(2)		/**< @brief tcp keep alive intrval */
 
@@ -82,9 +82,16 @@ typedef struct st_mqtt_msg {
 } st_mqtt_msg;
 
 typedef enum {
+	MQTT_DISCONNECTED_NETWORK_ERROR,
+	MQTT_DISCONNECTED_PING_FAIL,
+	MQTT_DISCONNECTED_PING_TIMEOUT,
+} st_mqtt_evt_dis_reason;
+
+typedef enum {
 	ST_MQTT_EVENT_MSG_DELIVERED = 1,
 	ST_MQTT_EVENT_PUBLISH_FAILED = 2,
 	ST_MQTT_EVENT_PUBLISH_TIMEOUT = 3,
+	ST_MQTT_EVENT_DISCONNECTED = 4,
 } st_mqtt_event;
 
 typedef void (*st_mqtt_event_callback)(st_mqtt_event event, void *event_data, void *usr_data);
@@ -188,16 +195,7 @@ DLLExport void st_mqtt_destroy(st_mqtt_client client);
  */
 DLLExport int st_mqtt_yield(st_mqtt_client client, int time);
 
-/** MQTT start background thread for a client.	After this, MQTTYield should not be called.
-*  @param client - the client object to use
-*  @return success code
-*/
-DLLExport int st_mqtt_starttask(st_mqtt_client client);
-
-/** MQTT end background thread for a client.
-*  @param client - the client object to use
-*/
-DLLExport void st_mqtt_endtask(st_mqtt_client client);
+DLLExport bool st_mqtt_socket_suspend(st_mqtt_client client);
 
 #if defined(__cplusplus)
 }

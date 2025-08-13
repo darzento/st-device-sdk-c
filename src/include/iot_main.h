@@ -23,7 +23,6 @@
 #include "iot_error.h"
 #include "iot_bsp_wifi.h"
 #include "iot_os_util.h"
-#include "iot_net.h"
 #include "iot_mqtt.h"
 #include "security/iot_security_crypto.h"
 #include "iot_util.h"
@@ -54,6 +53,8 @@
 #define REGISTRATION_TIMEOUT_MS	(900000) /* 15 min */
 
 #define GG_CONNECTION_RESPONSE_TIMEOUT_MS	(5000)
+
+#define CLOUD_CON_TIMER_MS			(60 * 1000)
 
 enum _iot_noti_type {
 	/* Common notifications */
@@ -133,23 +134,30 @@ enum iot_state_opt {
 };
 
 typedef enum iot_st_ecode_type {
-	IOT_ST_ECODE_NONE,
+	IOT_ST_ECODE_MIN = 0,
+	IOT_ST_ECODE_NONE = IOT_ST_ECODE_MIN,
 	IOT_ST_ECODE_EE01,
 	IOT_ST_ECODE_NE01,
 	IOT_ST_ECODE_NE02,
 	IOT_ST_ECODE_NE03,
 	IOT_ST_ECODE_NE04,
-	IOT_ST_ECODE_NE10,
 	IOT_ST_ECODE_NE11,
+	IOT_ST_ECODE_NE11_1,
+	IOT_ST_ECODE_NE11_3,
+	IOT_ST_ECODE_NE11_4,
 	IOT_ST_ECODE_NE12,
 	IOT_ST_ECODE_NE13,
 	IOT_ST_ECODE_NE14,
 	IOT_ST_ECODE_NE15,
 	IOT_ST_ECODE_NE16,
 	IOT_ST_ECODE_NE17,
+	IOT_ST_ECODE_CE01,
 	IOT_ST_ECODE_CE11,
 	IOT_ST_ECODE_CE12,
 	IOT_ST_ECODE_CE20,
+	IOT_ST_ECODE_CE20_1,
+	IOT_ST_ECODE_CE20_2,
+	IOT_ST_ECODE_CE20_3,
 	IOT_ST_ECODE_CE21,
 	IOT_ST_ECODE_CE30,
 	IOT_ST_ECODE_CE31,
@@ -160,8 +168,11 @@ typedef enum iot_st_ecode_type {
 	IOT_ST_ECODE_CE50,
 	IOT_ST_ECODE_CE51,
 	IOT_ST_ECODE_CE60,
+	IOT_ST_ECODE_CE70,
+	IOT_ST_ECODE_CE84_4,
+	IOT_ST_ECODE_DS13_1,
+	IOT_ST_ECODE_MAX = IOT_ST_ECODE_DS13_1,
 }iot_st_ecode_t;
-
 
 /**
  * @brief Contains "wifi provisioning" data
@@ -275,7 +286,7 @@ struct iot_state_data {
  */
 typedef struct iot_cap_handle_list iot_cap_handle_list_t;
 
-#define IOT_ST_ECODE_STR_LEN	(4)
+#define IOT_ST_ECODE_STR_LEN	(6)
 
 struct iot_st_ecode {
 	iot_st_ecode_t ecode_type;
@@ -301,7 +312,7 @@ struct iot_context {
 	bool es_ble_ready;				/**< @brief to check easy-setup-ble is initialized or not */
 
 	iot_state_t curr_state;			/**< @brief reflect current iot_state */
-	iot_os_timer state_timer;		/**< @brief state checking timer for each iot_state */
+	iot_os_timer_handle state_timer;		/**< @brief state checking timer for each iot_state */
 
 	iot_os_eventgroup *usr_events;		/**< @brief User level handling events */
 	iot_os_eventgroup *iot_events;		/**< @brief Internal handling events */
@@ -311,6 +322,7 @@ struct iot_context {
 	st_mqtt_client evt_mqttcli;			/**< @brief SmartThings MQTT Client for event & commands */
 	gg_connection_request_status sign_in_connection_request_status;	/**< @brief Sign-in connection request status */
 	st_mqtt_client reg_mqttcli;			/**< @brief SmartThings MQTT Client for registration */
+	bool registered_msg_requested;		/**< @brief flag to prevent serveral register msg */
 	unsigned int mqtt_connect_critical_reject_count;		/**< @brief MQTT connect critical reject count */
 	gg_connection_request_status sign_up_connection_request_status;	/**< @brief Sign-up connection request status */
 	char *mqtt_event_topic;				/**< @brief mqtt topic for event publish */
@@ -349,7 +361,7 @@ struct iot_context {
 	int event_sequence_num;	/**< @brief Last event's sequence number */
 
 	bool rate_limit; 	/**< @brief whether rate limit occurs */
-	iot_os_timer rate_limit_timeout;	/**< @brief timeout for rate limit penalty */
+	iot_os_timer_handle rate_limit_timeout;	/**< @brief timeout for rate limit penalty */
 
 	unsigned int mqtt_connection_success_count; /**< @brief MQTT connection success count */
 	unsigned int mqtt_connection_try_count; /**< @brief MQTT connection try count */
@@ -358,9 +370,16 @@ struct iot_context {
 	struct iot_st_ecode last_st_ecode;	/**< @brief last happended device error code to send SmartThings App */
 
 	bool is_wifi_station;		/**< @brief indicator if wifi is station mode or not */
+	iot_error_t es_network_status;			/**< @brief to check network connection status*/
+	bool request_disconnect;			/**< @brief to check disconnection request for ble connection*/
+	bool cloud_connection_pause;			/**< @brief cloud connection needs to pause*/
+	int wifi_candidate_frequency;			/**< @brief the frequency of wifi candiate from st app */
+	bool d2d_event_request;				/**< @brief check event from d2d process*/
+	bool onboarding_complete;			/**< @brief to check onboarding completion status*/
 
 	unsigned int connection_retry_count; 	/**< @brief MQTT server connection retry count */
-	iot_os_timer next_connection_retry_timer;	/**< @brief timer for next connection retry count */
+	iot_os_timer_handle next_connection_retry_timer;	/**< @brief timer for next connection retry count */
+	iot_os_timer cloud_con_timer;			/**< @brief timer for cloud connection check */
 };
 
 #endif /* _IOT_MAIN_H_ */

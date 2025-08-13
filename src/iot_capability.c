@@ -16,6 +16,7 @@
  *
  ****************************************************************************/
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #if defined(STDK_IOT_CORE_SERIALIZE_CBOR)
@@ -468,12 +469,8 @@ DEPRECATED int st_cap_attr_send(IOT_CAP_HANDLE *cap_handle,
 	}
 
 	if (ctx->rate_limit) {
-		if ((iot_os_timer_isexpired(ctx->rate_limit_timeout))) {
-			ctx->rate_limit = false;
-		} else {
-			IOT_WARN("Exceed rate limit. Can't send attributes for a while");
-			return IOT_ERROR_BAD_REQ;
-		}
+		IOT_WARN("Exceed rate limit. Can't send attributes for a while");
+		return IOT_ERROR_BAD_REQ;
 	}
 
 	if (ctx->event_sequence_num == MAX_SQNUM) {
@@ -524,9 +521,6 @@ DEPRECATED int st_cap_attr_send(IOT_CAP_HANDLE *cap_handle,
 		return IOT_ERROR_MQTT_PUBLISH_FAIL;
 	}
 
-#if !defined(STDK_MQTT_TASK)
-	iot_os_eventgroup_set_bits(ctx->iot_events, IOT_EVENT_BIT_CAPABILITY);
-#endif
 	IOT_DUMP(IOT_DEBUG_LEVEL_INFO, IOT_DUMP_CAPABILITY_SEND_EVENT_SUCCESS, evt_num, 0);
 
 	free(msg.payload);
@@ -558,12 +552,8 @@ int st_cap_send_attr(IOT_EVENT *event[], uint8_t evt_num)
 	}
 
 	if (ctx->rate_limit) {
-		if ((iot_os_timer_isexpired(ctx->rate_limit_timeout))) {
-			ctx->rate_limit = false;
-		} else {
-			IOT_WARN("Exceed rate limit. Can't send attributes for a while");
-			return IOT_ERROR_BAD_REQ;
-		}
+		IOT_WARN("Exceed rate limit. Can't send attributes for a while");
+		return IOT_ERROR_BAD_REQ;
 	}
 
 	if (ctx->event_sequence_num == MAX_SQNUM) {
@@ -620,9 +610,6 @@ int st_cap_send_attr(IOT_EVENT *event[], uint8_t evt_num)
 		return IOT_ERROR_MQTT_PUBLISH_FAIL;
 	}
 
-#if !defined(STDK_MQTT_TASK)
-	iot_os_eventgroup_set_bits(ctx->iot_events, IOT_EVENT_BIT_CAPABILITY);
-#endif
 	IOT_DUMP(IOT_DEBUG_LEVEL_INFO, IOT_DUMP_CAPABILITY_SEND_EVENT_SUCCESS, evt_num, 0);
 
 	free(msg.payload);
@@ -660,6 +647,7 @@ iot_error_t _iot_parse_noti_data(void *data, iot_noti_data_t *noti_data)
 	noti_type_string = JSON_GET_STRING_VALUE(noti_type);
 	if (noti_type_string == NULL) {
 		IOT_ERROR("there is no event type string");
+		err = IOT_ERROR_BAD_REQ;
 		goto out_noti_parse;
 	}
 	if (!strncmp(noti_type_string, SERVER_NOTI_TYPE_DEVICE_DELETED, strlen(SERVER_NOTI_TYPE_DEVICE_DELETED))) {
@@ -810,6 +798,13 @@ out_noti_parse:
 	return err;
 }
 
+static void _iot_noti_rate_limit_cb(iot_os_timer_handle handle, void *user_data)
+{
+	struct iot_context *ctx = (struct iot_context *)user_data;
+	IOT_INFO("Timeout");
+
+	ctx->rate_limit = false;
+}
 
 void iot_noti_sub_cb(struct iot_context *ctx, char *payload)
 {
@@ -830,8 +825,15 @@ void iot_noti_sub_cb(struct iot_context *ctx, char *payload)
 		return;
 	}
 	if (noti_data.type == IOT_NOTI_TYPE_RATE_LIMIT) {
-		ctx->rate_limit = true;
-		iot_os_timer_count_ms(ctx->rate_limit_timeout, IOT_RATE_LIMIT_BREAK_TIME);
+		if (ctx->rate_limit_timeout) {
+			iot_os_timer_delete(ctx->rate_limit_timeout);
+		}
+		ctx->rate_limit_timeout = iot_os_timer_create(_iot_noti_rate_limit_cb, IOT_RATE_LIMIT_BREAK_TIME, ctx);
+		if (!ctx->rate_limit_timeout) {
+			IOT_ERROR("Failed to create rate limit timeout");
+		} else if(!iot_os_timer_start(ctx->rate_limit_timeout)) {
+			ctx->rate_limit = true;
+		}
 	}
 
 	iot_command_send(ctx, IOT_COMMAND_NOTIFICATION_RECEIVED,
@@ -1546,12 +1548,8 @@ int st_cap_send_attr_v2(IOT_CTX *iot_ctx, st_attr_data* attr_data[], uint8_t att
 	}
 
 	if (ctx->rate_limit) {
-		if ((iot_os_timer_isexpired(ctx->rate_limit_timeout))) {
-			ctx->rate_limit = false;
-		} else {
-			IOT_WARN("Exceed rate limit. Can't send attributes for a while");
-			return IOT_ERROR_BAD_REQ;
-		}
+		IOT_WARN("Exceed rate limit. Can't send attributes for a while");
+		return IOT_ERROR_BAD_REQ;
 	}
 
 	if (ctx->event_sequence_num == MAX_SQNUM) {
@@ -1607,9 +1605,6 @@ int st_cap_send_attr_v2(IOT_CTX *iot_ctx, st_attr_data* attr_data[], uint8_t att
 		return IOT_ERROR_MQTT_PUBLISH_FAIL;
 	}
 
-#if !defined(STDK_MQTT_TASK)
-	iot_os_eventgroup_set_bits(ctx->iot_events, IOT_EVENT_BIT_CAPABILITY);
-#endif
 	IOT_DUMP(IOT_DEBUG_LEVEL_INFO, IOT_DUMP_CAPABILITY_SEND_EVENT_SUCCESS, attr_num, 0);
 
 	free(msg.payload);

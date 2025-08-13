@@ -23,17 +23,18 @@
 #include "freertos/event_groups.h"
 
 #include "esp_idf_version.h"
-#if (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4,0,0))
-#include "esp32c6/rom/ets_sys.h"
-#else
-#include "rom/ets_sys.h"
-#endif
 #include "esp_wifi.h"
 #include "esp_wifi_he.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_pm.h"
+#include "esp_timer.h"
+#include "esp_system.h"
+#include "esp_sleep.h"
+#include "driver/gpio.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 
 #include "iot_debug.h"
 #include "iot_bsp_wifi.h"
@@ -41,6 +42,7 @@
 #include "iot_util.h"
 
 #include "lwip/apps/sntp.h"
+#include "lwip/inet.h"
 
 const int WIFI_STA_START_BIT 		= BIT0;
 const int WIFI_STA_CONNECT_BIT		= BIT1;
@@ -54,14 +56,131 @@ static int WIFI_INITIALIZED = false;
 static EventGroupHandle_t wifi_event_group;
 static iot_bsp_wifi_event_cb_t wifi_event_cb;
 
-#if (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
-static system_event_cb_t s_event_handler_cb = NULL;
-#else
-static esp_event_handler_t s_event_handler_cb = NULL;
-#endif
 static void *s_event_ctx = NULL;
 static bool s_initialized = false;
 static iot_error_t s_latest_disconnect_reason;
+static esp_netif_t *g_sta_netif = NULL;
+static bool s_wifi_connect_timeout = false;
+static uint8_t g_wifi_connect_count = 0;
+static uint8_t g_wifi_reboot_count = 0;
+
+static esp_timer_create_args_t wifi_timer_args;
+static esp_timer_handle_t wifi_timer_handle;
+
+ESP_EVENT_DEFINE_BASE(SYSTEM_EVENT);
+
+static esp_err_t wifi_nvs_initialize(void)
+{
+    esp_err_t ret = ESP_FAIL;
+#if CONFIG_NVS_ENCRYPTION
+
+    // 1. find partition with nvs_keys
+    const esp_partition_t *key_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                                               ESP_PARTITION_SUBTYPE_DATA_NVS_KEYS,
+                                                               "nvs_key");
+    if (key_part == NULL) {
+        printf("CONFIG_NVS_ENCRYPTION is enabled, but no partition with subtype nvs_keys found in the partition table.");
+        return ret;
+    }
+
+    // 2. read nvs_keys from key partition
+    nvs_sec_cfg_t cfg = {};
+    ret = nvs_flash_read_security_cfg(key_part, &cfg);
+    if (ret != ESP_OK) {
+        printf("Failed to read nvs keys [rc=0x%x] (%s)", ret, esp_err_to_name(ret));
+        return ret;
+    }
+
+    // 3. initialize nvs partition
+    ret = nvs_flash_secure_init_partition("nvs", &cfg);
+    if (ret != ESP_OK) {
+        printf("Failed to initialize custom nvs partition [ret=0x%x] (%s)", ret, esp_err_to_name(ret));
+        return ret;
+    }
+    printf("NVS partition \"%s\" is encrypted.", "nvs");
+
+    return ret;
+#else
+	ret = nvs_flash_init_partition("nvs");
+    return ret;
+#endif
+}
+
+static esp_err_t wifi_nvs_read_boot_count(uint8_t *boot_count)
+{
+	esp_err_t ret = ESP_OK;
+	nvs_handle_t handle;
+	uint8_t count = 0;
+	ret = nvs_open_from_partition("nvs", "wifi", NVS_READWRITE, &handle);
+
+	if (ret == ESP_OK) {
+		ret = nvs_get_u8(handle, "boot_count", &count);
+		if (ret == ESP_OK) {
+			*boot_count = count;
+			IOT_INFO("Boot count: %d", *boot_count);
+		}
+	}
+	nvs_close(handle);
+	return ret;
+}
+
+static esp_err_t wifi_nvs_set_boot_count(uint8_t boot_count)
+{
+	esp_err_t ret = ESP_OK;
+	nvs_handle_t handle;
+	ret = nvs_open_from_partition("nvs", "wifi", NVS_READWRITE, &handle);
+	if (ret == ESP_OK) {
+		ret = nvs_set_u8(handle, "boot_count", boot_count);
+		if (ret == ESP_OK) {
+			IOT_INFO("Boot count set to: %d", boot_count);
+		}
+	}
+	nvs_commit(handle);
+	nvs_close(handle);
+	return ret;
+}
+
+static void wifi_timer_cb(void *arg)
+{
+	IOT_INFO("Wi-Fi timer callback");
+	if (g_wifi_connect_count == 5) {
+		esp_wifi_disconnect();
+		esp_wifi_stop();
+		esp_wifi_start();
+	}
+	esp_wifi_connect();
+}
+
+static void wifi_timer_init(void)
+{
+	wifi_timer_args.callback = wifi_timer_cb;
+	wifi_timer_args.arg = NULL;
+	wifi_timer_args.name = "wifi_timer";
+	wifi_timer_args.dispatch_method = ESP_TIMER_TASK;
+	wifi_timer_args.skip_unhandled_events = false;
+
+	esp_err_t err = esp_timer_create(&wifi_timer_args, &wifi_timer_handle);
+	if (err != ESP_OK) {
+		IOT_ERROR("Failed to create timer");
+	}
+}
+
+static void wifi_timer_start(uint32_t seconds)
+{
+	IOT_INFO("disconnected, start timer for %d seconds", seconds);
+	esp_timer_start_once(wifi_timer_handle, seconds * 1000 * 1000);
+}
+
+static bool wifi_timer_is_running(void)
+{
+	return esp_timer_is_active(wifi_timer_handle);
+}
+
+static void wifi_timer_stop(void)
+{
+	IOT_INFO("stop timer");
+	esp_timer_delete(wifi_timer_handle);
+}
 
 static void _initialize_sntp(void)
 {
@@ -109,13 +228,11 @@ static void _obtain_time(void)
 	}
 }
 
-static void event_handler(void *ctx, esp_event_base_t event_base, long int event_id, void* event_data)
+static void esp_wifi_event_post_to_user(void* arg, esp_event_base_t base, int32_t id, void* data)
 {
-	wifi_ap_record_t ap_info;
-	memset(&ap_info, 0x0, sizeof(wifi_ap_record_t));
-
-	switch(event_id) {
+	switch(id) {
 	case WIFI_EVENT_STA_START:
+		IOT_INFO("Station started");
 		xEventGroupSetBits(wifi_event_group, WIFI_STA_START_BIT);
 		esp_wifi_connect();
 		break;
@@ -126,11 +243,12 @@ static void event_handler(void *ctx, esp_event_base_t event_base, long int event
 		break;
 
 	case WIFI_EVENT_STA_DISCONNECTED:
-		wifi_event_sta_disconnected_t* disconnect = (wifi_event_sta_disconnected_t*)event_data;
-		IOT_INFO("Disconnect reason : %d", disconnect->reason);
-		IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_EVENT_DEAUTH, disconnect->reason, 0);
+		{
+		wifi_event_sta_disconnected_t *event = (wifi_event_sta_disconnected_t *)data;
+		IOT_INFO("Disconnect reason : %d", event->reason);
+		IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_EVENT_DEAUTH, event->reason, 0);
 		xEventGroupSetBits(wifi_event_group, WIFI_STA_DISCONNECT_BIT);
-		switch (disconnect->reason)
+		switch (event->reason)
 		{
 			case WIFI_REASON_NO_AP_FOUND:
 				s_latest_disconnect_reason = IOT_ERROR_CONN_STA_AP_NOT_FOUND;
@@ -141,19 +259,66 @@ static void event_handler(void *ctx, esp_event_base_t event_base, long int event
 			case WIFI_REASON_ASSOC_FAIL:
 				s_latest_disconnect_reason = IOT_ERROR_CONN_STA_ASSOC_FAIL;
 				break;
+			case WIFI_REASON_CONNECTION_FAIL:
+				s_latest_disconnect_reason = IOT_ERROR_CONN_STA_CONN_FAIL;
+				break;
+			case WIFI_REASON_BEACON_TIMEOUT:
+				s_latest_disconnect_reason = IOT_ERROR_CONN_STA_ASSOC_FAIL;
+				break;
+			default:
+				s_latest_disconnect_reason = IOT_ERROR_CONN_STA_CONN_FAIL;
+				break;
 		}
-		esp_wifi_connect();
+		g_wifi_connect_count++;
+
+		if (s_wifi_connect_timeout == false) {
+			IOT_INFO("Reconnecting to the AP...");
+			// if (g_wifi_connect_count++ < 5) {
+			
+			if (g_wifi_connect_count <= 5) {
+				wifi_timer_start(10);
+			} else if (g_wifi_connect_count == 6) {
+				wifi_timer_start(600);
+			}
+		} else {
+			IOT_INFO("Reconnecting to the AP is skipped");
+			s_wifi_connect_timeout = false;
+		}
+
+		if (g_wifi_connect_count > 6) {
+			if (wifi_timer_is_running() == 1) {
+				wifi_timer_stop();
+			}
+			if (wifi_nvs_read_boot_count(&g_wifi_reboot_count) != ESP_OK) {
+				IOT_ERROR("Failed to read boot count");
+			}
+			g_wifi_reboot_count++;
+			if (wifi_nvs_set_boot_count(g_wifi_reboot_count) != ESP_OK) {
+				IOT_ERROR("Failed to set boot count");
+			}
+			
+			if (g_wifi_reboot_count < 3) {
+				esp_restart();
+			} else {
+				esp_wifi_stop();
+				esp_deep_sleep_enable_gpio_wakeup(BIT(GPIO_NUM_0), ESP_GPIO_WAKEUP_GPIO_LOW);
+				wifi_nvs_set_boot_count(0);
+				IOT_INFO("enter deep sleep");
+				esp_deep_sleep_start();
+			}
+		}
 		xEventGroupClearBits(wifi_event_group, WIFI_STA_CONNECT_BIT);
+		}
 		break;
 
-	case IP_EVENT_STA_GOT_IP:
-		ip_event_got_ip_t* connect = (ip_event_got_ip_t*) event_data;
-		esp_wifi_sta_get_ap_info(&ap_info);
-		IOT_INFO("got ip: "IPSTR"rssi:%ddBm",
-			IP2STR(&connect->ip_info.ip), ap_info.rssi);
-		IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_EVENT_AUTH, ap_info.rssi, 0);
-		xEventGroupSetBits(wifi_event_group, WIFI_STA_CONNECT_BIT);
-		xEventGroupClearBits(wifi_event_group, WIFI_STA_DISCONNECT_BIT);
+	case WIFI_EVENT_STA_CONNECTED :
+		{
+		IOT_INFO("Wifi Connected");
+		if (wifi_timer_is_running() == 1) {
+			wifi_timer_stop();
+		}
+		g_wifi_connect_count = 0;
+		}
 		break;
 
 	case WIFI_EVENT_AP_START:
@@ -168,66 +333,62 @@ static void event_handler(void *ctx, esp_event_base_t event_base, long int event
 		break;
 
 	case WIFI_EVENT_AP_STACONNECTED:
-		wifi_event_ap_staconnected_t* ap_staconnect = (wifi_event_ap_staconnected_t*) event_data;
-		IOT_INFO("station:"MACSTR" join, AID=%d",
-				MAC2STR(ap_staconnect->mac),
-				ap_staconnect->aid);
+		{
+		wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)data;
+		IOT_INFO("station: %02x:%02x:%02x:%02x:%02x:%02x join, AID=%d",
+				event->mac[0],event->mac[1],event->mac[2],event->mac[3],event->mac[4],event->mac[5],
+				event->aid);
 		if (wifi_event_cb) {
 			IOT_DEBUG("0x%p called", wifi_event_cb);
 			(*wifi_event_cb)(IOT_WIFI_EVENT_SOFTAP_STA_JOIN, IOT_ERROR_NONE);
 		}
+		}
 		break;
 
 	case WIFI_EVENT_AP_STADISCONNECTED:
-		wifi_event_ap_stadisconnected_t* ap_stadisconnect = (wifi_event_ap_stadisconnected_t*) event_data;
-		IOT_INFO("station:"MACSTR" leave, AID=%d",
-				MAC2STR(ap_stadisconnect->mac),
-				ap_stadisconnect->aid);
+		{
+		wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)data;
+		IOT_INFO("station: %02x:%02x:%02x:%02x:%02x:%02x leave, AID=%d",
+				event->mac[0],event->mac[1],event->mac[2],event->mac[3],event->mac[4],event->mac[5],
+				event->aid);
 
 		xEventGroupSetBits(wifi_event_group, WIFI_AP_STOP_BIT);
 		if (wifi_event_cb) {
 			IOT_DEBUG("0x%p called", wifi_event_cb);
 			(*wifi_event_cb)(IOT_WIFI_EVENT_SOFTAP_STA_LEAVE, IOT_ERROR_NONE);
 		}
+		}
 		break;
-
+	case WIFI_EVENT_STA_BEACON_TIMEOUT:
+		if (esp_wifi_set_inactive_time(WIFI_IF_STA, 40) != ESP_OK) {
+			IOT_ERROR("esp_wifi_set_inactive_time failed");
+		}
+		break;
 	default:
-		IOT_INFO("event_handler = %d", event_id);
+		IOT_INFO("event_handler = %d", id);
 		break;
 	}
-
-	return ;
 }
 
-static void esp_event_post_to_user(void* arg, esp_event_base_t base, long int id, void* data)
+static void esp_ip_event_post_to_user(void* arg, esp_event_base_t base, int32_t id, void* data)
 {
-	if (s_event_handler_cb) {
-#if (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
-		system_event_t* event = (system_event_t*) data;
-		(*s_event_handler_cb)(s_event_ctx, event);
-#else
-		(*s_event_handler_cb)(s_event_ctx, base, id, data);
-#endif
+	switch(id) {
+	case IP_EVENT_STA_GOT_IP:
+		{
+		ip_event_got_ip_t *event = (ip_event_got_ip_t *)data;
+		IOT_INFO("got ip:%s", ip4addr_ntoa((ip4_addr_t *)&event->ip_info.ip));
+		s_wifi_connect_timeout = false;
+		xEventGroupSetBits(wifi_event_group, WIFI_STA_CONNECT_BIT);
+		xEventGroupClearBits(wifi_event_group, WIFI_STA_DISCONNECT_BIT);
+		}
+		break;
+	default:
+		IOT_INFO("event_handler = %d", id);
+		break;
 	}
 }
 
-#if (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
-esp_err_t esp_event_send_legacy(system_event_t *event)
-{
-	if (!s_initialized) {
-		IOT_ERROR("system event loop not initialized via esp_event_loop_init");
-		return ESP_ERR_INVALID_STATE;
-	}
-
-	return esp_event_post(SYSTEM_EVENT, event->event_id, event, sizeof(*event), portMAX_DELAY);
-}
-#endif
-
-#if (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
-static esp_err_t esp_event_loop_init_wrap(system_event_cb_t cb, void *ctx)
-#else
-static esp_err_t esp_event_loop_init_wrap(esp_event_handler_t cb, void *ctx)
-#endif
+static esp_err_t esp_event_loop_init_wrap(void *ctx)
 {
 	if (s_initialized) {
 		IOT_ERROR("system event loop already initialized");
@@ -240,22 +401,29 @@ static esp_err_t esp_event_loop_init_wrap(esp_event_handler_t cb, void *ctx)
 		return err;
 	}
 
-	err = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &esp_event_post_to_user, NULL);
+	err = esp_event_handler_instance_register(WIFI_EVENT,
+                                              ESP_EVENT_ANY_ID,
+                                              &esp_wifi_event_post_to_user,
+                                              NULL,
+                                              NULL);
 	if (err != ESP_OK) {
-		IOT_ERROR("esp_event_handler_register is failed");
+		IOT_ERROR("wifi_event_handler_register is failed");
 		esp_event_loop_delete_default();
 		return err;
 	}
 
-	err = esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, &esp_event_post_to_user, NULL);
+	err = esp_event_handler_instance_register(IP_EVENT,
+                                              ESP_EVENT_ANY_ID,
+                                              &esp_ip_event_post_to_user,
+                                              NULL,
+                                              NULL);
 	if (err != ESP_OK) {
-		IOT_ERROR("esp_event_handler_register is failed");
+		IOT_ERROR("ip_event_handler_register is failed");
 		esp_event_loop_delete_default();
 		return err;
 	}
 
 	s_initialized = true;
-	s_event_handler_cb = cb;
 	s_event_ctx = ctx;
 	return ESP_OK;
 }
@@ -272,14 +440,15 @@ iot_error_t iot_bsp_wifi_init()
 	wifi_event_group = xEventGroupCreate();
 
 	esp_netif_init();
-	esp_ret = esp_event_loop_init_wrap(event_handler, NULL);
+	esp_ret = esp_event_loop_init_wrap(NULL);
 	if(esp_ret != ESP_OK) {
 		IOT_ERROR("esp_event_loop_init_wrap failed err=[%d]", esp_ret);
 		IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_INIT_FAIL, esp_ret, __LINE__);
 		return IOT_ERROR_INIT_FAIL;
 	}
 
-	esp_netif_create_default_wifi_sta();
+	g_sta_netif = esp_netif_create_default_wifi_sta();
+	assert(g_sta_netif);
 	esp_netif_create_default_wifi_ap();
 
 	wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -302,6 +471,15 @@ iot_error_t iot_bsp_wifi_init()
 		IOT_ERROR("esp_wifi_set_mode failed err=[%d]", esp_ret);
 		IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_INIT_FAIL, esp_ret, __LINE__);
 		return IOT_ERROR_INIT_FAIL;
+	}
+
+	wifi_timer_init();
+	wifi_nvs_initialize();
+
+	if (wifi_nvs_read_boot_count(&g_wifi_reboot_count) == ESP_OK) {
+		IOT_INFO("Boot count: %d", g_wifi_reboot_count);
+	} else {
+		wifi_nvs_set_boot_count(0);
 	}
 
 	WIFI_INITIALIZED = true;
@@ -346,9 +524,16 @@ iot_error_t iot_bsp_wifi_set_mode(iot_wifi_conf *conf)
 		}
 
 		if(mode == WIFI_MODE_NULL) {
+			wifi_config.sta.listen_interval = 80;
 			ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 			ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
+			// ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40));
+ 		    // ESP_ERROR_CHECK(esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N));
 			ESP_ERROR_CHECK(esp_wifi_start());
+
+			if (esp_wifi_set_inactive_time(WIFI_IF_STA, 40) != ESP_OK) {
+				IOT_ERROR("esp_wifi_set_inactive_time failed");
+			}
 			
 			uxBits = xEventGroupWaitBits(wifi_event_group, WIFI_STA_START_BIT,
 			true, false, IOT_WIFI_CMD_TIMEOUT);
@@ -362,10 +547,33 @@ iot_error_t iot_bsp_wifi_set_mode(iot_wifi_conf *conf)
 				return IOT_ERROR_CONN_OPERATE_FAIL;
 			}
 		}
+
+		/* Handles scan request when device connecting to AP has timed out. Waits for
+		 * disconnect or connect event before start scan to prevent scan rejection.
+		 */
+		if (s_wifi_connect_timeout == true) {
+			xEventGroupClearBits(wifi_event_group, WIFI_STA_CONNECT_BIT | WIFI_STA_DISCONNECT_BIT);
+
+			uxBits = xEventGroupWaitBits(wifi_event_group,
+				WIFI_STA_DISCONNECT_BIT | WIFI_STA_CONNECT_BIT,
+				true, false, IOT_WIFI_CMD_TIMEOUT);
+
+			if (uxBits & (WIFI_STA_DISCONNECT_BIT | WIFI_STA_CONNECT_BIT)) {
+				IOT_INFO("Ready for wifi scan");
+			} else {
+				IOT_ERROR("Device is busy connecting to AP");
+				IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_TIMEOUT, mode, __LINE__);
+				return IOT_ERROR_CONN_OPERATE_FAIL;
+			}
+		}
 		break;
 
 	case IOT_WIFI_MODE_STATION:
-
+#if defined(CONFIG_STDK_IOT_CORE_EASYSETUP_BLE)
+		ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
+		ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+		ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
+#endif
 		esp_ret = esp_wifi_get_mode(&mode);
 		if(esp_ret != ESP_OK) {
 			IOT_ERROR("esp_wifi_get_mode failed err=[%d]", esp_ret);
@@ -419,10 +627,17 @@ iot_error_t iot_bsp_wifi_set_mode(iot_wifi_conf *conf)
 			wifi_config.sta.pmf_cfg.required = false;
 		}
 		s_latest_disconnect_reason = IOT_ERROR_CONN_CONNECT_FAIL;
-		wifi_config.sta.listen_interval = 15;
+		wifi_config.sta.listen_interval = 80;
+		// wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
 		ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 		ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
+		// ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40));
+		// ESP_ERROR_CHECK(esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N));
 		ESP_ERROR_CHECK(esp_wifi_start());
+
+		if (esp_wifi_set_inactive_time(WIFI_IF_STA, 40) != ESP_OK) {
+			IOT_ERROR("esp_wifi_set_inactive_time failed");
+		}
 
 		IOT_INFO("connect to ap SSID:%s", wifi_config.sta.ssid);
 
@@ -430,28 +645,16 @@ iot_error_t iot_bsp_wifi_set_mode(iot_wifi_conf *conf)
 				true, false, IOT_WIFI_CMD_TIMEOUT);
 		if((uxBits & WIFI_STA_CONNECT_BIT)) {
 			IOT_INFO("AP Connected");
+			s_latest_disconnect_reason = IOT_ERROR_NONE;
 			IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_CONNECT_SUCCESS, 0, 0);
-#if CONFIG_PM_ENABLE
-			esp_pm_config_t pm_config = {
-				.max_freq_mhz = 80,
-				.min_freq_mhz = 10,
-#if CONFIG_FREERTOS_USE_TICKLESS_IDLE
-				.light_sleep_enable = false,
-#endif
-			};
-			ESP_ERROR_CHECK( esp_wifi_set_ps(WIFI_PS_MAX_MODEM));
-			ESP_ERROR_CHECK( esp_pm_configure(&pm_config));
-#endif
 		}
 		else {
-			iot_error_t err = IOT_ERROR_CONN_CONNECT_FAIL;
-			if (s_latest_disconnect_reason != IOT_ERROR_CONN_CONNECT_FAIL) {
-				err = s_latest_disconnect_reason;
-			}
+			IOT_ERROR("WIFI_STA_CONNECT_BIT event Timeout %d", s_latest_disconnect_reason);
+			IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_CONNECT_FAIL, IOT_WIFI_CMD_TIMEOUT,
+				s_latest_disconnect_reason);
 
-			IOT_ERROR("WIFI_STA_CONNECT_BIT event Timeout %d", err);
-			IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_CONNECT_FAIL, IOT_WIFI_CMD_TIMEOUT, err);
-			return err;
+			s_wifi_connect_timeout = true;
+			return s_latest_disconnect_reason;
 		}
 
 		time(&now);
@@ -542,11 +745,9 @@ uint16_t iot_bsp_wifi_get_scan_result(iot_wifi_scan_result_t *scan_result)
 					iot_wifi_auth_mode_t conv_auth_mode;
 
 					switch (ap_list[i].authmode) {
-#if (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4,3,0))
 						case WIFI_AUTH_WAPI_PSK:
 							conv_auth_mode = IOT_WIFI_AUTH_UNKNOWN;
 							break;
-#endif
 						case WIFI_AUTH_WPA2_WPA3_PSK:
 						case WIFI_AUTH_WPA3_PSK:
 							conv_auth_mode = IOT_WIFI_AUTH_WPA3_PERSONAL;
@@ -620,4 +821,41 @@ iot_wifi_auth_mode_bits_t iot_bsp_wifi_get_auth_mode(void)
 	supported_mode_bits ^= IOT_WIFI_AUTH_MODE_BIT(IOT_WIFI_AUTH_WPA2_ENTERPRISE);
 
 	return supported_mode_bits;
+}
+
+bool iot_bsp_wifi_is_dhcp_success()
+{
+	esp_netif_ip_info_t ip_info;
+	bool result = false;
+	esp_err_t err = ESP_FAIL;
+
+	if (g_sta_netif) {
+		err = esp_netif_get_ip_info(g_sta_netif, &ip_info);
+		if ((err == ESP_OK) && (ip_info.ip.addr != INADDR_ANY)) {
+			result = true;
+			IOT_DEBUG("Wifi station IP Address :" IPSTR ", ", IP2STR(&ip_info.ip));
+		} else {
+			result = false;
+			IOT_ERROR("Invalid wifi station IP address.");
+		}
+	}
+	return result;
+}
+
+iot_error_t iot_bsp_wifi_get_status(void)
+{
+	iot_error_t ret = IOT_ERROR_NONE;
+	ret = s_latest_disconnect_reason;
+	return ret;
+}
+
+void iot_bsp_wifi_connect(void)
+{
+	if (s_wifi_connect_timeout == false) {
+		g_wifi_connect_count = 0;
+		
+		if (wifi_nvs_set_boot_count(0) != ESP_OK) {
+			IOT_ERROR("Failed to set boot count");
+		}
+	}
 }

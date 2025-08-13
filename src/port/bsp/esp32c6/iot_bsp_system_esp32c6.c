@@ -27,7 +27,7 @@
 
 const char* iot_bsp_get_bsp_name()
 {
-       return "esp32c3";
+       return "esp32c6";
 }
 
 const char* iot_bsp_get_bsp_version_string()

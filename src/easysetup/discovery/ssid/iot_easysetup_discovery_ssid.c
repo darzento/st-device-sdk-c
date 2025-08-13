@@ -15,6 +15,7 @@
  * language governing permissions and limitations under the License.
  *
  ****************************************************************************/
+#include <stdio.h>
 #include <string.h>
 #include <iot_nv_data.h>
 #include <iot_easysetup.h>

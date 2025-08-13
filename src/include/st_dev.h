@@ -224,6 +224,7 @@ typedef void (*st_cap_init_cb)(IOT_CAP_HANDLE *cap_handle, void *init_usr_data);
 typedef void (*st_cap_noti_cb)(iot_noti_data_t *noti_data, void *noti_usr_data);
 typedef void (*st_cap_cmd_cb)(IOT_CAP_HANDLE *cap_handle,
 	iot_cap_cmd_data_t *cmd_data, void *usr_data);
+typedef void (*st_get_network_cb)(void* err);
 
 /**
  * @brief Contains data for extension options.
@@ -620,10 +621,6 @@ int st_conn_set_noti_cb(IOT_CTX *iot_ctx,
 int st_cap_cmd_set_cb(IOT_CAP_HANDLE *cap_handle, const char *cmd_type,
 		st_cap_cmd_cb cmd_cb, void *usr_data);
 
-void st_task_suspend(IOT_CTX* iot_ctx);
-void st_task_resume(IOT_CTX* iot_ctx);
-void st_conn_deinit(IOT_CTX* iot_ctx);
-
 /**
  * @brief	st-iot-core initialize function
  * @details	This function initializes st-iot-core for target
@@ -739,6 +736,9 @@ int st_change_device_name(IOT_CTX *iot_ctx, const char *new_name);
  */
 int st_cap_send_attr_v2(IOT_CTX *iot_ctx, st_attr_data* attr_data[], uint8_t attr_num);
 
+void st_set_network_cb(st_get_network_cb cb_func);
+void st_retry_timer_ctrl(IOT_CTX* ctx);
+void st_retry_mqtt(IOT_CTX* ctx);
 #ifdef __cplusplus
 }
 #endif

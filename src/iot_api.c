@@ -16,6 +16,7 @@
  *
  ****************************************************************************/
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
@@ -67,10 +68,19 @@ iot_error_t iot_command_send(struct iot_context *ctx,
 	} else {
 		iot_os_eventgroup_set_bits(ctx->iot_events,
 			IOT_EVENT_BIT_COMMAND);
+		// iot_os_thread_resume(ctx->main_thread);
 		err = IOT_ERROR_NONE;
 	}
 
 	return err;
+}
+
+iot_error_t iot_wifi_get_status(struct iot_context *ctx)
+{
+	iot_error_t con_result = IOT_ERROR_NONE;
+
+	con_result = iot_bsp_wifi_get_status();
+	return con_result;
 }
 
 iot_error_t iot_wifi_ctrl_request(struct iot_context *ctx,
@@ -141,6 +151,7 @@ iot_error_t iot_wifi_ctrl_request(struct iot_context *ctx,
 #endif
 	case IOT_WIFI_MODE_SCAN:
 		send_cmd = false;
+		wifi_conf.wifi_candidate_frequency = ctx->wifi_candidate_frequency;
 
 		iot_err = iot_bsp_wifi_set_mode(&wifi_conf);
 		if (iot_err != IOT_ERROR_NONE) {
@@ -170,10 +181,6 @@ iot_error_t iot_wifi_ctrl_request(struct iot_context *ctx,
 		if (iot_err < 0) {
 			IOT_ERROR("failed to set wifi_set_mode %d", iot_err);
 			iot_set_st_ecode_from_conn_error(ctx, iot_err);
-			if (wifi_mode == IOT_WIFI_MODE_SOFTAP)
-				iot_set_st_ecode(ctx, IOT_ST_ECODE_NE01);
-			else if (wifi_mode == IOT_WIFI_MODE_STATION)
-				iot_set_st_ecode(ctx, IOT_ST_ECODE_NE10);
 			return iot_err;
 		}
 
@@ -246,6 +253,7 @@ iot_error_t iot_easysetup_request(struct iot_context *ctx,
 		} else {
 			iot_os_eventgroup_set_bits(ctx->iot_events,
 				IOT_EVENT_BIT_EASYSETUP_REQ);
+			// iot_os_thread_resume(ctx->main_thread);
 			err = IOT_ERROR_NONE;
 		}
 	} else {
@@ -526,6 +534,10 @@ iot_error_t iot_api_onboarding_config_load(unsigned char *onboarding_config,
 				ownership_validation_type |= (unsigned int) IOT_OVF_TYPE_PIN;
 			else if (!strcmp(JSON_GET_STRING_VALUE(ovf), "QR"))
 				ownership_validation_type |= (unsigned int) IOT_OVF_TYPE_QR;
+			else if (!strcmp(JSON_GET_STRING_VALUE(ovf), "SERIALNUMBER"))
+				ownership_validation_type |= (unsigned int) IOT_OVF_TYPE_SERIAL_NUMBER;
+			else if (!strcmp(JSON_GET_STRING_VALUE(ovf), "HASHEDSERIALNUMBER"))
+				ownership_validation_type |= (unsigned int) IOT_OVF_TYPE_HASHED_SERIAL_NUMBER;
 			else {
 				IOT_ERROR("Unknown validation type: %s", JSON_GET_STRING_VALUE(ovf));
 #if defined(CONFIG_STDK_IOT_CORE_LOG_LEVEL_ERROR)
@@ -1054,8 +1066,8 @@ iot_error_t iot_device_cleanup(struct iot_context *ctx)
 		}
 	}
 
-	if(ctx->lookup_id) {
-		free(ctx->lookup_id);
+	if (ctx->lookup_id) {
+		iot_os_free(ctx->lookup_id);
 		ctx->lookup_id = NULL;
 	}
 
@@ -1434,7 +1446,7 @@ static iot_error_t iot_ecodeType_to_string(iot_st_ecode_t ecode_type, struct iot
 	switch(ecode_type)
 	{
 		case IOT_ST_ECODE_NONE:
-			strncpy(st_ecode->ecode, "\0", sizeof(st_ecode->ecode));
+			strncpy(st_ecode->ecode, "UE01", sizeof(st_ecode->ecode));
 			break;
 		case IOT_ST_ECODE_EE01:
 			strncpy(st_ecode->ecode, "EE01", sizeof(st_ecode->ecode));
@@ -1451,11 +1463,17 @@ static iot_error_t iot_ecodeType_to_string(iot_st_ecode_t ecode_type, struct iot
 		case IOT_ST_ECODE_NE04:
 			strncpy(st_ecode->ecode, "NE04", sizeof(st_ecode->ecode));
 			break;
-		case IOT_ST_ECODE_NE10:
-			strncpy(st_ecode->ecode, "NE10", sizeof(st_ecode->ecode));
-			break;
 		case IOT_ST_ECODE_NE11:
 			strncpy(st_ecode->ecode, "NE11", sizeof(st_ecode->ecode));
+			break;
+		case IOT_ST_ECODE_NE11_1:
+			strncpy(st_ecode->ecode, "NE11-1", sizeof(st_ecode->ecode));
+			break;
+		case IOT_ST_ECODE_NE11_3:
+			strncpy(st_ecode->ecode, "NE11-3", sizeof(st_ecode->ecode));
+			break;
+		case IOT_ST_ECODE_NE11_4:
+			strncpy(st_ecode->ecode, "NE11-4", sizeof(st_ecode->ecode));
 			break;
 		case IOT_ST_ECODE_NE12:
 			strncpy(st_ecode->ecode, "NE12", sizeof(st_ecode->ecode));
@@ -1475,6 +1493,9 @@ static iot_error_t iot_ecodeType_to_string(iot_st_ecode_t ecode_type, struct iot
 		case IOT_ST_ECODE_NE17:
 			strncpy(st_ecode->ecode, "NE17", sizeof(st_ecode->ecode));
 			break;
+		case IOT_ST_ECODE_CE01:
+			strncpy(st_ecode->ecode, "CE01", sizeof(st_ecode->ecode));
+			break;
 		case IOT_ST_ECODE_CE11:
 			strncpy(st_ecode->ecode, "CE11", sizeof(st_ecode->ecode));
 			break;
@@ -1483,6 +1504,15 @@ static iot_error_t iot_ecodeType_to_string(iot_st_ecode_t ecode_type, struct iot
 			break;
 		case IOT_ST_ECODE_CE20:
 			strncpy(st_ecode->ecode, "CE20", sizeof(st_ecode->ecode));
+			break;
+		case IOT_ST_ECODE_CE20_1:
+			strncpy(st_ecode->ecode, "CE20-1", sizeof(st_ecode->ecode));
+			break;
+		case IOT_ST_ECODE_CE20_2:
+			strncpy(st_ecode->ecode, "CE20-2", sizeof(st_ecode->ecode));
+			break;
+		case IOT_ST_ECODE_CE20_3:
+			strncpy(st_ecode->ecode, "CE20-3", sizeof(st_ecode->ecode));
 			break;
 		case IOT_ST_ECODE_CE21:
 			strncpy(st_ecode->ecode, "CE21", sizeof(st_ecode->ecode));
@@ -1514,6 +1544,15 @@ static iot_error_t iot_ecodeType_to_string(iot_st_ecode_t ecode_type, struct iot
 		case IOT_ST_ECODE_CE60:
 			strncpy(st_ecode->ecode, "CE60", sizeof(st_ecode->ecode));
 			break;
+		case IOT_ST_ECODE_CE70:
+			strncpy(st_ecode->ecode, "CE70", sizeof(st_ecode->ecode));
+			break;
+		case IOT_ST_ECODE_CE84_4:
+			strncpy(st_ecode->ecode, "CE84-4", sizeof(st_ecode->ecode));
+			break;
+		case IOT_ST_ECODE_DS13_1:
+			strncpy(st_ecode->ecode, "DS13-1", sizeof(st_ecode->ecode));
+			break;
 		default:
 			break;
 	}
@@ -1539,28 +1578,29 @@ iot_error_t iot_set_st_ecode_from_conn_error(struct iot_context *ctx, iot_error_
 			ecode = IOT_ST_ECODE_NE04;
 			break;
 		case IOT_ERROR_CONN_STA_CONF_FAIL:
-			ecode = IOT_ST_ECODE_NE10;
-			break;
 		case IOT_ERROR_CONN_STA_CONN_FAIL:
-			ecode = IOT_ST_ECODE_NE11;
+			ecode = IOT_ST_ECODE_NE11_1;
+			break;
+		case IOT_ERROR_CONN_STA_AP_NOT_FOUND:
+			ecode = IOT_ST_ECODE_NE11_1;
+			break;
+		case IOT_ERROR_CONN_STA_ASSOC_FAIL:
+			ecode = IOT_ST_ECODE_NE11_3;
+			break;
+		case IOT_ERROR_CONN_STA_AUTH_FAIL:
+			ecode = IOT_ST_ECODE_NE11_4;
 			break;
 		case IOT_ERROR_CONN_STA_DHCP_FAIL:
 			ecode = IOT_ST_ECODE_NE12;
-			break;
-		case IOT_ERROR_CONN_STA_AP_NOT_FOUND:
-			ecode = IOT_ST_ECODE_NE13;
-			break;
-		case IOT_ERROR_CONN_STA_ASSOC_FAIL:
-			ecode = IOT_ST_ECODE_NE14;
-			break;
-		case IOT_ERROR_CONN_STA_AUTH_FAIL:
-			ecode = IOT_ST_ECODE_NE15;
 			break;
 		case IOT_ERROR_CONN_STA_NO_INTERNET:
 			ecode = IOT_ST_ECODE_NE16;
 			break;
 		case IOT_ERROR_CONN_DNS_QUERY_FAIL:
 			ecode = IOT_ST_ECODE_NE17;
+			break;
+		case IOT_ERROR_CONN_OPERATE_FAIL:
+			ecode = IOT_ST_ECODE_DS13_1;
 			break;
 		default:
 			return IOT_ERROR_INVALID_ARGS;
@@ -1583,16 +1623,26 @@ iot_error_t iot_get_st_ecode(struct iot_context *ctx, struct iot_st_ecode *st_ec
 iot_error_t iot_set_st_ecode(struct iot_context *ctx, iot_st_ecode_t ecode_type)
 {
 	iot_error_t err = IOT_ERROR_NONE;
+	char ecode[IOT_ST_ECODE_STR_LEN + 1] = {0,};
 
 	if (ctx == NULL) {
 		IOT_ERROR("There is no ctx");
 		return IOT_ERROR_INVALID_ARGS;
 	}
 
+	if (ecode_type < IOT_ST_ECODE_MIN || ecode_type > IOT_ST_ECODE_MAX) {
+		IOT_ERROR("Invalid ecode_type (%d)", ecode_type);
+		return IOT_ERROR_INVALID_ARGS;
+	}
+
+	IOT_INFO("update last_st_ecode (%d) -> (%d)", ctx->last_st_ecode.ecode_type, ecode_type);
+
 	if ((ecode_type != ctx->last_st_ecode.ecode_type) || (ecode_type == IOT_ST_ECODE_NONE)) {
+		ctx->last_st_ecode.ecode_type = ecode_type;
 		memset(ctx->last_st_ecode.ecode, 0, sizeof(ctx->last_st_ecode.ecode));
 		iot_ecodeType_to_string(ecode_type, &ctx->last_st_ecode);
-		err = iot_misc_info_store(IOT_MISC_PREV_ERR, (void *)ctx->last_st_ecode.ecode);
+		snprintf(ecode, sizeof(ecode), "%d", ecode_type);
+		err = iot_misc_info_store(IOT_MISC_PREV_ERR, (void *)ecode);
 	}
 
 	return err;
@@ -1611,6 +1661,7 @@ iot_error_t iot_cleanup(struct iot_context *ctx, bool reboot)
 	}
 
 	iot_device_cleanup(ctx);
+	ctx->curr_state = IOT_STATE_INITIALIZED;
 
 	if (reboot) {
 		IOT_REBOOT();

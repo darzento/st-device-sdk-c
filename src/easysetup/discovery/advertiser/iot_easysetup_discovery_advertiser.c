@@ -33,6 +33,9 @@ iot_error_t iot_easysetup_create_ble_advertise_packet(struct iot_context *ctx)
 	iot_error_t err = IOT_ERROR_NONE;
 	unsigned char hash_buffer[IOT_SECURITY_SHA256_LEN] = { 0, };
 	unsigned char base64url_buffer[IOT_SECURITY_B64_ENCODE_LEN(IOT_SECURITY_SHA256_LEN)] = { 0, };
+#if !defined(CONFIG_STDK_IOT_CORE_EASYSETUP_X509)
+	char hybrid_serial[HYBRID_SERIAL_NUMBER_SIZE + 1] = { 0, };
+#endif
 
 	IOT_WARN_CHECK((ctx == NULL), IOT_ERROR_INVALID_ARGS, "Invalid args 'NULL'");
 
@@ -67,8 +70,17 @@ iot_error_t iot_easysetup_create_ble_advertise_packet(struct iot_context *ctx)
 	memset(ctx->devconf.hashed_sn, '\0', base64_written + 1);
 	memcpy(ctx->devconf.hashed_sn, base64url_buffer, base64_written);
 
+#if defined(CONFIG_STDK_IOT_CORE_EASYSETUP_X509)
 	iot_create_advertise_packet(ctx->devconf.mnid, ctx->devconf.setupid, (char *)serial);
 	iot_create_scan_response_packet(ctx->devconf.device_onboarding_id, (char *)serial);
+#else
+	memcpy(hybrid_serial, ctx->devconf.hashed_sn, HASH_SERIAL_NUMBER_HYBRID_PORTION);
+	memcpy(hybrid_serial + HASH_SERIAL_NUMBER_HYBRID_PORTION, serial + length - PLAIN_SERIAL_NUMBER_HYBRID_PORTION,
+		PLAIN_SERIAL_NUMBER_HYBRID_PORTION);
+	iot_create_advertise_packet(ctx->devconf.mnid, ctx->devconf.setupid, (char *)hybrid_serial);
+	iot_create_scan_response_packet(ctx->devconf.device_onboarding_id, (char *)hybrid_serial);
+#endif
+
 out:
 	if (err && ctx->devconf.hashed_sn) {
 		iot_os_free(ctx->devconf.hashed_sn);

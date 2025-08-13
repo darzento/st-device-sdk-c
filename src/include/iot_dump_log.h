@@ -195,8 +195,12 @@ typedef enum {
 	IOT_DUMP_EASYSETUP_OTMTYPE_QR = 0x0526, /* arg1: line number, arg2: 0 for qr, 1 for serial number */
 	IOT_DUMP_EASYSETUP_OTMTYPE_BUTTON = 0x0527, /* arg1: line number, arg2: 0 */
 	IOT_DUMP_EASYSETUP_OTMTYPE_PIN = 0x0528, /* arg1: line number, arg2: 0 */
-	IOT_DUMP_EASYSETUP_OTMTYPE_NOT_SUPPORTED = 0x0529, /* arg1: line number, arg2: 0 */
-	IOT_DUMP_EASYSETUP_REPORTED_OTMTYPE = 0x052A, /* arg1: line number, arg2: return value */
+	IOT_DUMP_EASYSETUP_OTMTYPE_SERIAL = 0x0529, /* arg1: line number, arg2: 0 */
+	IOT_DUMP_EASYSETUP_OTMTYPE_HASHED_SERIAL = 0x052A, /* arg1: line number, arg2: 0 */
+	IOT_DUMP_EASYSETUP_OTMTYPE_NOT_SUPPORTED = 0x052B, /* arg1: line number, arg2: 0 */
+	IOT_DUMP_EASYSETUP_REPORTED_OTMTYPE = 0x052C, /* arg1: line number, arg2: return value */
+	IOT_DUMP_EASYSETUP_INVALID_HASHED_SERIAL_NUMBER = 0x052D, /* arg1: line number, arg2: 0 */
+	IOT_DUMP_EASYSETUP_SHA512_FAIL = 0x052E, /* arg1: line number, arg2: 0 */
 	/* Wifi provisioning */
 	IOT_DUMP_EASYSETUP_INVALID_MAC = 0x0531, /* arg1: line number, arg2: err number */
 	IOT_DUMP_EASYSETUP_INVALID_BROKER_URL = 0x0532, /* arg1: line number, arg2: err number */
@@ -246,6 +250,9 @@ typedef enum {
 	IOT_DUMP_EASYSETUP_PROVISIONING_SUCCESS = 0x057B, /* arg1: line number, arg2: 0 */
 	/* Registration */
 	IOT_DUMP_EASYSETUP_REGISTER_FAILED_REGISTRATION  = 0x0581, /* arg1: line number, arg2: 0 */
+	IOT_DUMP_EASYSETUP_UNAVAILABLE_PASSWORD  = 0x0582, /* arg1: line number, arg2: 0 */
+	IOT_DUMP_EASYSETUP_NOT_CONNECTED_WIRELESS_NETWORK  = 0x0583, /* arg1: line number, arg2: 0 */
+	IOT_DUMP_EASYSETUP_WIFI_DHCP_FAIL  = 0x0585, /* arg1: line number, arg2: 0 */
 	/* Certificate */
 	IOT_DUMP_EASYSETUP_CETIFICATE_FAILED_GET_CERTIFICATE = 0x0589, /* arg1: line number, arg2: 0 */
 	/* tcp */

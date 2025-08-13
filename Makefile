@@ -14,11 +14,6 @@ NET_DIR = src/port/net/openssl
 endif
 CRYPTO_DIR = src/port/crypto/reference
 
-ifneq ($(findstring STDK_IOT_CORE_EASYSETUP_HTTP_USE_SOCKET_API, $(STDK_CONFIGS)),)
-HTTP_DIR = src/port/http/socket
-endif
-
-
 SECURITY_DIR = src/security
 EASYSETUP_DIR = src/easysetup
 MQTT_DIR = src/mqtt
@@ -31,7 +26,7 @@ CFLAGS	:= -std=c99 -D_GNU_SOURCE
 CFLAGS	+= $(STDK_CFLAGS)
 
 
-INCS	:= -I/usr/include -Isrc/include -Isrc/include/mqtt -Isrc/include/os -Isrc/include/bsp -Isrc/include/external -I$(NET_DIR) -I$(HTTP_DIR) -Isrc/include/port
+INCS	:= -I/usr/include -Isrc/include -Isrc/include/mqtt -Isrc/include/os -Isrc/include/bsp -Isrc/include/external -I$(NET_DIR) -Isrc/include/port
 INCS	+= -Isrc/include/security
 INCS	+= -I$(CBOR_DIR)
 
@@ -52,7 +47,6 @@ ifneq ($(findstring STDK_IOT_CORE_EASYSETUP_X509, $(STDK_CONFIGS)),)
 SRCS	+= $(wildcard $(EASYSETUP_DIR)/http/tls/*.c)
 else
 SRCS	+= $(wildcard $(EASYSETUP_DIR)/http/tcp/*.c)
-SRCS	+= $(wildcard $(HTTP_DIR)/*.c)
 endif
 SRCS	+= $(wildcard $(MQTT_DIR)/client/*.c)
 SRCS	+= $(wildcard $(MQTT_DIR)/packet/*.c)

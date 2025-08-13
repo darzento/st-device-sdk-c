@@ -9,3 +9,4 @@ tools/keygen/output_*
 doc/doxygen/
 build/
 output/
+*.bak

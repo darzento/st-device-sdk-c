@@ -19,11 +19,13 @@
 #ifndef _IOT_OS_UTIL_H_
 #define _IOT_OS_UTIL_H_
 #include <stdlib.h>
+#include <stdbool.h>
 
 typedef void *iot_os_thread;
 typedef void iot_os_eventgroup;
 typedef void iot_os_sem;
 typedef void *iot_os_timer;
+typedef void *iot_os_timer_handle;
 
 /**
  * @brief Contains a mutex data.
@@ -39,10 +41,13 @@ typedef struct iot_os_mutex
 #define IOT_OS_TRUE iot_os_true
 #define IOT_OS_FALSE iot_os_false
 
+#define IOT_OS_WAIT_FOREVER	0xffffffff
+
 extern const unsigned int iot_os_max_delay;
 extern const unsigned int iot_os_true;
 extern const unsigned int iot_os_false;
 
+typedef void (*iot_os_timer_cb)(iot_os_timer_handle timer_handle, void *user_data);
 
 /*
  * @brief get os name
@@ -87,6 +92,9 @@ int iot_os_thread_create(void * thread_function, const char* name, int stack_siz
  *
  */
 void iot_os_thread_delete(iot_os_thread thread_handle);
+
+void iot_os_thread_suspend(iot_os_thread thread_handle);
+void iot_os_thread_resume(iot_os_thread thread_handle);
 
 /**
  * @brief	yield task
@@ -303,8 +311,70 @@ unsigned int iot_os_timer_left_ms(iot_os_timer timer);
  */
 void iot_os_timer_destroy(iot_os_timer* timer);
 
-void iot_task_suspend(iot_os_thread handler);
-void iot_task_resume(iot_os_thread handler);
+/**
+ * @brief	create timer
+ *
+ * This function will create timer struct
+ *
+ * @param[in] cb user callback function when timer is up
+ * @param[in] expiry_time_ms timer expiry time in milliseconds
+ * @param[in] user_data user struct data passed when timer is up
+ *
+ * @return
+ *	iot_os_timer_handle : success
+ *	NULL : fail
+ */
+iot_os_timer_handle iot_os_timer_create(iot_os_timer_cb cb, unsigned int expiry_time_ms, void *user_data);
+
+/**
+ * @brief	delete timer
+ *
+ * This function will delete timer struct
+ *
+ * @param[in] timer	handle to delete
+ *
+ */
+void iot_os_timer_delete(iot_os_timer_handle timer_handle);
+
+/**
+ * @brief	start timer
+ *
+ * This function will start timer
+ *
+ * @param[in] timer	handle to start
+ *
+ * @return
+ * 	0 : timer starts successfully
+ *	non-zero : failed to start timer
+ */
+int iot_os_timer_start(iot_os_timer_handle timer_handle);
+
+/**
+ * @brief	stop timer
+ *
+ * This function will stop timer
+ *
+ * @param[in] timer	handle to stop
+ *
+ * @return
+ * 	0 : timer stops successfully
+ *	non-zero : failed to stop timer
+ */
+int iot_os_timer_stop(iot_os_timer_handle timer_handle);
+
+/**
+ * @brief	check timer active
+ *
+ * This function will check if timer is running
+ *
+ * @param[in] timer	handle to check running
+ *
+ * @return
+ * 	true : timer's started
+ *	false : timer's not started
+ */
+bool iot_os_timer_is_active(iot_os_timer_handle timer_handle);
+
 
 #if defined(CONFIG_STDK_IOT_CORE_OS_SUPPORT_POSIX)
 /**

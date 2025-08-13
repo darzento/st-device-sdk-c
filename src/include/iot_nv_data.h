@@ -198,6 +198,8 @@ iot_error_t iot_nv_set_cloud_prov_data(struct iot_cloud_prov_data* cloud_prov);
  */
 iot_error_t iot_nv_get_certificate(iot_security_cert_id_t cert_id, char **cert, size_t *cert_len);
 
+
+#if defined(CONIFG_STDK_IOT_CORE_EASYSETUP_SELF_CONTAINED_JWT)
 /**
  * @brief Get a device certificate serial number from the nv file-system.
  *
@@ -209,6 +211,7 @@ iot_error_t iot_nv_get_certificate(iot_security_cert_id_t cert_id, char **cert, 
  * @warning The caller is always responsible to free the allocated pointer after using the data.
  */
 iot_error_t _iot_nv_get_certificate_serial_number(char **cert_sn);
+#endif
 
 /**
  * @brief Get a device id from the nv file-system.

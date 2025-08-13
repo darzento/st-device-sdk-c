@@ -404,6 +404,24 @@ uint16_t iot_util_convert_channel_freq(uint8_t channel)
 	return 0;
 }
 
+uint8_t iot_util_convert_freq_channel(uint16_t freq)
+{
+	if (freq == 0)
+		return 0;
+
+	if (freq < 2484) {
+		return (((freq - 2412) / 5) + 1);
+	} else if (freq == 2484) {
+		return 14;
+	} else if (freq >= 5160 && freq <= 5865) {
+		return (((freq - 5160) / 5) + 32);
+	} else {
+		IOT_ERROR("Not supported frequency = %d", freq);
+	}
+
+	return 0;
+}
+
 iot_error_t iot_util_url_parse(char *url, url_parse_t *output)
 {
 	char *p1 = NULL;
@@ -568,19 +586,30 @@ iot_error_t iot_util_queue_receive(iot_util_queue_t* queue, void * data)
 	return ret;
 }
 
+
 unsigned int iot_util_generator_backoff(unsigned int try_count, unsigned int maximum_backoff)
 {
 	unsigned int backoff = 1;
 
-	for (int i = 0; i < try_count; i++)
-	{
-		backoff *= 2;
-		if ((backoff * 1000) >= (maximum_backoff * 1000))
-			return maximum_backoff * 1000;
-	}
+	// for (int i = 0; i < try_count; i++)
+	// {
+	// 	backoff *= 2;
+	// 	if ((backoff * 1000) >= (maximum_backoff * 1000))
+	// 		return maximum_backoff * 1000;
+	// }
 
-	backoff *= 1000;
-	backoff += (iot_bsp_random() % 1000);
+	// backoff *= 1000;
+	// backoff += (iot_bsp_random() % 1000);
+/**
+ * try_count가
+ * 0 ~ 4 : 5초마다 check
+ * 5 이상 : maximum_backoff * 1000 마다 check
+ */
+	if (try_count <= 3) {
+		backoff = backoff * 5 * 1000;
+	} else {
+		backoff = maximum_backoff * 1000;
+	}
 
 	return backoff;
 }

@@ -50,6 +50,53 @@ char *iot_debug_get_log(void)
 	return log_buffer;
 }
 #endif
+
+/**
+ * @brief			cmd queue consume
+ * @details			This function consume cmd queue
+ * @param[in]		ctx		iot_context handle
+ */
+STATIC_FUNCTION
+void _iot_easysetup_throw_away_all_cmd_queue(struct iot_context *ctx)
+{
+	struct iot_command cmd;
+
+	if (!ctx) {
+		IOT_ERROR("There is no ctx!!");
+		return;
+	}
+
+	cmd.param = NULL;
+	while (iot_util_queue_receive(ctx->cmd_queue,
+				&cmd) == IOT_ERROR_NONE) {
+		if (cmd.param) {
+			free(cmd.param);
+			cmd.param = NULL;
+		}
+	}
+}
+
+STATIC_FUNCTION
+iot_error_t _iot_easysetup_con_timer_init(struct iot_context *ctx)
+{
+	iot_error_t err = IOT_ERROR_NONE;
+
+	if (ctx->cloud_con_timer) {
+		iot_os_timer_destroy(&ctx->cloud_con_timer);
+		ctx->cloud_con_timer = NULL;
+	}
+
+	err = iot_os_timer_init(&ctx->cloud_con_timer);
+	if (err != IOT_ERROR_NONE) {
+		IOT_ERROR("failed to malloc for cloud_con_timer");
+	} else {
+		iot_os_timer_count_ms(ctx->cloud_con_timer, CLOUD_CON_TIMER_MS);
+		IOT_INFO("cloud connection start");
+	}
+
+	return err;
+}
+
 /**
  * @brief            ble event callback
  * @details          This function handle ble event
@@ -61,13 +108,20 @@ void _iot_easysetup_ble_event_cb(iot_ble_event_t event, iot_error_t error)
 {
 	iot_error_t err = IOT_ERROR_NONE;
 
+	if (context->cloud_con_timer) {
+		iot_os_timer_destroy(&context->cloud_con_timer);
+		context->cloud_con_timer = NULL;
+	}
+
 	switch (event) {
 		case IOT_BLE_EVENT_GATT_JOIN:
 			IOT_INFO("BLE Gatt Connection");
 			ref_step = 0;
+			context->wifi_candidate_frequency = 0;
 			break;
 		case IOT_BLE_EVENT_GATT_LEAVE:
 			IOT_INFO("BLE Gatt Disconnection");
+			context->request_disconnect = 1;
 			st_conn_ownership_confirm((IOT_CTX *)context, true);
 			iot_os_eventgroup_clear_bits(context->iot_events, IOT_EVENT_BIT_EASYSETUP_RESP);
 			if (context->easysetup_security_context->cipher_params) {
@@ -80,14 +134,28 @@ void _iot_easysetup_ble_event_cb(iot_ble_event_t event, iot_error_t error)
 				}
 			}
 
-
-			if (ref_step != IOT_EASYSETUP_BLE_STEP_SETUPCOMPLETE + 1) {
+			if (context->onboarding_complete == false) {
 				iot_device_cleanup(context);
-
+				iot_os_mutex_lock(&context->iot_cmd_lock);
+				_iot_easysetup_throw_away_all_cmd_queue(context);
+				iot_os_mutex_unlock(&context->iot_cmd_lock);
 				context->curr_state = IOT_STATE_INITIALIZED;
 				iot_state_update(context, IOT_STATE_PROV_ENTER, 0);
 			}
 
+			if (context->cloud_con_timer) {
+				iot_os_timer_destroy(&context->cloud_con_timer);
+				context->cloud_con_timer = NULL;
+			}
+
+			context->request_disconnect = 0;
+			context->d2d_event_request = false;
+
+			/* we don't need this lookup_id anymore */
+			if (context->lookup_id) {
+				free(context->lookup_id);
+				context->lookup_id = NULL;
+			}
 
 			es_reset_transferdata();
 			break;
@@ -358,6 +426,9 @@ void iot_easysetup_ble_msg_handler(int cmd, char* data_buf, size_t data_buf_len)
 		goto err_report;
 	}
 
+	if (cmd == IOT_EASYSETUP_BLE_STEP_SETUPCOMPLETE)
+		_iot_easysetup_con_timer_init(context);
+
 	if (cmd == IOT_EASYSETUP_BLE_STEP_SETUPCOMPLETE_RESPONSE)
 		goto err_report;
 
@@ -375,6 +446,8 @@ void iot_easysetup_ble_msg_handler(int cmd, char* data_buf, size_t data_buf_len)
 	if (err) {
 		IOT_INFO("post cmd[%d] not ok", cmd);
 		IOT_ES_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_EASYSETUP_CMD_FAIL, cmd);
+	} else if (cmd == IOT_EASYSETUP_BLE_STEP_SETUPCOMPLETE) {
+		goto out;
 	}
 
 err_report:
@@ -383,6 +456,49 @@ err_report:
 			free(payload);
 
 		payload = NULL;
+
+		if (cmd == IOT_EASYSETUP_BLE_STEP_SETUPCOMPLETE_RESPONSE) {
+			if (!iot_bsp_wifi_is_dhcp_success()) {
+				iot_set_st_ecode(context, IOT_ST_ECODE_NE12);
+				context->es_network_status = IOT_ERROR_CONN_STA_DHCP_FAIL;
+			}
+
+			switch (context->es_network_status) {
+				case IOT_ERROR_NONE:
+					err = context->es_network_status;
+					break;
+				case IOT_ERROR_MQTT_REJECT_CONNECT:
+					err = IOT_ERROR_EASYSETUP_REGISTER_FAILED_REGISTRATION;
+					IOT_ES_DUMP(IOT_DEBUG_LEVEL_INFO, IOT_DUMP_EASYSETUP_REGISTER_FAILED_REGISTRATION, 0);
+					break;
+				case IOT_ERROR_CONN_STA_AUTH_FAIL:
+					err = IOT_ERROR_EASYSETUP_UNAVAILABLE_PASSWORD;
+					IOT_ES_DUMP(IOT_DEBUG_LEVEL_INFO, IOT_DUMP_EASYSETUP_UNAVAILABLE_PASSWORD, 0);
+					break;
+				case IOT_ERROR_CONN_STA_DHCP_FAIL:
+					err = IOT_ERROR_EASYSETUP_WIFI_DHCP_FAIL;
+					IOT_ES_DUMP(IOT_DEBUG_LEVEL_INFO, IOT_DUMP_EASYSETUP_WIFI_DHCP_FAIL, 0);
+					break;
+				case IOT_ERROR_CONN_DNS_QUERY_FAIL:
+				case IOT_ERROR_CONN_STA_NO_INTERNET:
+					err = IOT_ERROR_EASYSETUP_NOT_CONNECTED_WIRELESS_NETWORK;
+					IOT_ES_DUMP(IOT_DEBUG_LEVEL_INFO, IOT_DUMP_EASYSETUP_NOT_CONNECTED_WIRELESS_NETWORK, 0);
+					break;
+				case IOT_ERROR_CONN_STA_AP_NOT_FOUND:
+				case IOT_ERROR_CONN_STA_ASSOC_FAIL:
+				case IOT_ERROR_CONN_STA_CONN_FAIL:
+					err = IOT_ERROR_EASYSETUP_WIFI_NOT_DISCOVERED;
+					IOT_ES_DUMP(IOT_DEBUG_LEVEL_INFO, IOT_DUMP_EASYSETUP_WIFI_NOT_DISCOVERED, 0);
+					break;
+				case IOT_ERROR_CONN_OPERATE_FAIL:
+					err = IOT_ERROR_EASYSETUP_WIFI_NOT_DISCOVERED;
+					IOT_ES_DUMP(IOT_DEBUG_LEVEL_INFO, IOT_DUMP_EASYSETUP_WIFI_NOT_DISCOVERED, 0);
+					break;
+				default :
+					err = IOT_ERROR_EASYSETUP_WIFI_NOT_DISCOVERED;
+					break;
+			}
+		}
 
 		root = cJSON_CreateObject();
 		if (!root) {
@@ -482,7 +598,45 @@ void iot_easysetup_deinit(struct iot_context *ctx)
 		return;
 
 	if (!ctx->es_ble_ready) {
+		IOT_INFO("ble is not ready");
 		es_ble_deinit();
+		ctx->onboarding_complete = false;
+		iot_bsp_ble_set_onboarding_completion(ctx->onboarding_complete);
+	} else {
+		ctx->d2d_event_request = false;
+
+		if (!ctx->es_network_status) {
+			ctx->onboarding_complete = true;
+			iot_bsp_ble_set_onboarding_completion(ctx->onboarding_complete);
+			IOT_INFO("set wifi provisiong info");
+			err = iot_nv_set_wifi_prov_data(&ctx->prov_data.wifi);
+			if (err) {
+				IOT_ERROR("failed to set the wifi prov data");
+				IOT_ES_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_EASYSETUP_WIFI_DATA_WRITE_FAIL, err);
+			}
+		}
+
+		iot_easysetup_ble_msg_handler(IOT_EASYSETUP_BLE_STEP_SETUPCOMPLETE_RESPONSE, NULL, 0);
+
+		if (ctx->es_network_status != IOT_ERROR_NONE) {
+			err = iot_state_update(ctx, IOT_STATE_PROV_CONFIRM, 0);
+			if (err) {
+				IOT_ERROR("cannot update state to confirm state(%d)", err);
+				IOT_ES_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_EASYSETUP_INTERNAL_SERVER_ERROR, err);
+				err = IOT_ERROR_EASYSETUP_INTERNAL_SERVER_ERROR;
+			}
+			return;
+		}
+
+		if (ctx->onboarding_complete == false) {
+			err = iot_easysetup_create_ble_advertise_packet(ctx);
+			if (err != IOT_ERROR_NONE) {
+				IOT_ERROR("Can't create ble advertise packet for easysetup.(%d)", err);
+			}
+		} else {
+			IOT_INFO("ble deinit");
+			es_ble_deinit();
+		}
 	}
 
 #if defined(CONFIG_STDK_IOT_CORE_EASYSETUP_LOG_SUPPORT_NO_USE_LOGFILE)

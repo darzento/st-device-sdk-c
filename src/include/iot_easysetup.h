@@ -32,14 +32,16 @@ enum ownership_validation_feature {
 	OVF_BIT_BUTTON,
 	OVF_BIT_PIN,
 	OVF_BIT_SERIAL_NUMBER,
-	OVF_BIT_MAX_FEATURE = OVF_BIT_SERIAL_NUMBER,
-
+	OVF_BIT_HASHED_SERIAL_NUMBER,
+	OVF_BIT_MAX_FEATURE = OVF_BIT_HASHED_SERIAL_NUMBER,
 };
 
 #define IOT_OVF_TYPE_JUSTWORKS		(1u << (unsigned)OVF_BIT_JUSTWORKS)
-#define IOT_OVF_TYPE_BUTTON		(1u << (unsigned)OVF_BIT_BUTTON)
-#define IOT_OVF_TYPE_PIN		(1u << (unsigned)OVF_BIT_PIN)
-#define IOT_OVF_TYPE_QR			(1u << (unsigned)OVF_BIT_QR)
+#define IOT_OVF_TYPE_BUTTON			(1u << (unsigned)OVF_BIT_BUTTON)
+#define IOT_OVF_TYPE_PIN			(1u << (unsigned)OVF_BIT_PIN)
+#define IOT_OVF_TYPE_QR				(1u << (unsigned)OVF_BIT_QR)
+#define IOT_OVF_TYPE_SERIAL_NUMBER			(1u << (unsigned)OVF_BIT_SERIAL_NUMBER)
+#define IOT_OVF_TYPE_HASHED_SERIAL_NUMBER	(1u << (unsigned)OVF_BIT_HASHED_SERIAL_NUMBER)
 
 #define IOT_ES_URI_POST_KEYINFO			"/keyinfo"
 #define IOT_ES_URI_POST_CONFIRMINFO		"/confirminfo"
@@ -77,6 +79,7 @@ enum ownership_validation_feature {
 #define IOT_ERROR_EASYSETUP_INVALID_SERIAL_NUMBER		(IOT_ERROR_EASYSETUP_400_BASE - 22)
 #define IOT_ERROR_EASYSETUP_INVALID_PIN			(IOT_ERROR_EASYSETUP_400_BASE - 23)
 #define IOT_ERROR_EASYSETUP_PIN_NOT_MATCHED		(IOT_ERROR_EASYSETUP_400_BASE - 24)
+#define IOT_ERROR_EASYSETUP_INVALID_HASHED_SERIAL_NUMBER	(IOT_ERROR_EASYSETUP_400_BASE - 25)
 
 /* Wifi provisioning */
 #define IOT_ERROR_EASYSETUP_INVALID_MAC			(IOT_ERROR_EASYSETUP_400_BASE - 31)
@@ -107,6 +110,7 @@ enum ownership_validation_feature {
 #define IOT_ERROR_EASYSETUP_SERIAL_NOT_FOUND		(IOT_ERROR_EASYSETUP_500_BASE - 23)
 #define IOT_ERROR_EASYSETUP_CONFIRM_DENIED		(IOT_ERROR_EASYSETUP_500_BASE - 24)
 #define IOT_ERROR_EASYSETUP_PIN_NOT_FOUND		(IOT_ERROR_EASYSETUP_500_BASE - 25)
+#define IOT_ERROR_EASYSETUP_SHA512_FAIL			(IOT_ERROR_EASYSETUP_500_BASE - 26)
 
 /* Wifi provisioning */
 #define IOT_ERROR_EASYSETUP_WIFI_SCAN_NOT_FOUND			(IOT_ERROR_EASYSETUP_500_BASE - 31)
@@ -122,6 +126,10 @@ enum ownership_validation_feature {
 
 /* Registration */
 #define IOT_ERROR_EASYSETUP_REGISTER_FAILED_REGISTRATION			(IOT_ERROR_EASYSETUP_500_BASE - 41)
+#define IOT_ERROR_EASYSETUP_UNAVAILABLE_PASSWORD		(IOT_ERROR_EASYSETUP_500_BASE - 42)
+#define IOT_ERROR_EASYSETUP_NOT_CONNECTED_WIRELESS_NETWORK	(IOT_ERROR_EASYSETUP_500_BASE - 43)
+#define IOT_ERROR_EASYSETUP_WIFI_DHCP_FAIL			(IOT_ERROR_EASYSETUP_500_BASE - 45)
+
 
 /* Certificate */
 #define IOT_ERROR_EASYSETUP_CETIFICATE_FAILED_GET_CERTIFICATE			(IOT_ERROR_EASYSETUP_500_BASE - 51)
@@ -173,7 +181,6 @@ iot_error_t iot_easysetup_create_ble_advertise_packet(struct iot_context *ctx);
  */
 iot_error_t iot_easysetup_init(struct iot_context *ctx);
 
-
 /**
  * @brief	Stop easysetup device-to-device sequence
  * @details	This function stops httpd working
@@ -181,15 +188,6 @@ iot_error_t iot_easysetup_init(struct iot_context *ctx);
  * @return	void
  */
 void iot_easysetup_deinit(struct iot_context *ctx);
-
-/**
- * @brief	Query stopping eayssetup device-to-device sequence
- * @details	This function queries stopping easysetup device-to-device sequence
- * @return	bool
- * @retval	true	easysetup deinit is in progress
- * @retval	false	easysetup deinit isn't in progress
- */
-bool is_es_http_deinit_processing(void);
 
 #ifdef __cplusplus
 }

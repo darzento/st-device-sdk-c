@@ -133,7 +133,7 @@ iot_error_t iot_easysetup_ble_ecdh_compute_shared_signature(
 	memcpy(&random[0], sec_random, (ECDH_BLE_RANDOM_LEN * 2));
 
     if (ECDH_BLE_DEBUG_LOG_ENABLE) {
-        printf("<- random\n");
+        IOT_INFO("<- random");
         iot_util_dump_mem("dump", random, (ECDH_BLE_RANDOM_LEN*2));
     }
 
@@ -148,7 +148,7 @@ iot_error_t iot_easysetup_ble_ecdh_compute_shared_signature(
     }
 
     if (ECDH_BLE_DEBUG_LOG_ENABLE) {
-        printf("<- leaf certificate\n");
+        IOT_INFO("<- leaf certificate");
         iot_util_dump_mem("dump", cert_device_buf.p, (int)cert_device_buf.len);
     }
 
@@ -160,7 +160,7 @@ iot_error_t iot_easysetup_ble_ecdh_compute_shared_signature(
     }
 
     if (ECDH_BLE_DEBUG_LOG_ENABLE) {
-        printf("<- intermediate certificate\n");
+        IOT_INFO("<- intermediate certificate");
         iot_util_dump_mem("dump", cert_sub_buf.p, (int)cert_sub_buf.len);
     }
 
@@ -175,7 +175,7 @@ iot_error_t iot_easysetup_ble_ecdh_compute_shared_signature(
 	memcpy(*sub_cert, cert_sub_buf.p, cert_sub_buf.len);
 
     if (ECDH_BLE_DEBUG_LOG_ENABLE) {
-        printf("<- certificate blob\n");
+        IOT_INFO("<- certificate blob");
         iot_util_dump_mem("dump", cert_blob_buf.p, (int)cert_blob_buf.len);
     }
 
@@ -223,7 +223,7 @@ iot_error_t iot_easysetup_ble_ecdh_compute_shared_signature(
     *spub_key_len = own_pubkey_der_buf.len;
 
     if (ECDH_BLE_DEBUG_LOG_ENABLE) {
-        printf("<- own ephemeral public key\n");
+        IOT_INFO("<- own ephemeral public key");
         iot_util_dump_mem("dump", own_pubkey_der_buf.p, own_pubkey_der_buf.len);
     }
 
@@ -248,7 +248,7 @@ iot_error_t iot_easysetup_ble_ecdh_compute_shared_signature(
     }
 
     if (ECDH_BLE_DEBUG_LOG_ENABLE) {
-        printf("-- hash\n");
+        IOT_INFO("-- hash");
         iot_util_dump_mem("dump", hash_buf.p, hash_buf.len);
     }
 
@@ -274,7 +274,7 @@ iot_error_t iot_easysetup_ble_ecdh_compute_shared_signature(
     *signature_len = sig_buf.len;
 
     if (ECDH_BLE_DEBUG_LOG_ENABLE) {
-        printf("<- signature\n");
+        IOT_INFO("<- signature");
         iot_util_dump_mem("dump", sig_buf.p, sig_buf.len);
     }
 

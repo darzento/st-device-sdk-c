@@ -16,6 +16,7 @@
  *
  ****************************************************************************/
 
+#include <stdio.h>
 #include <string.h>
 #include "cJSON.h"
 #include "easysetup_http.h"

@@ -39,6 +39,7 @@
 #include "iot_util.h"
 
 #include "lwip/apps/sntp.h"
+#include "lwip/inet.h"
 
 const int WIFI_STA_START_BIT 		= BIT0;
 const int WIFI_STA_CONNECT_BIT		= BIT1;
@@ -56,6 +57,9 @@ static system_event_cb_t s_event_handler_cb = NULL;
 static void *s_event_ctx = NULL;
 static bool s_initialized = false;
 static iot_error_t s_latest_disconnect_reason;
+static esp_netif_t *g_sta_netif = NULL;
+static bool s_wifi_connect_timeout = false;
+
 
 ESP_EVENT_DEFINE_BASE(SYSTEM_EVENT);
 
@@ -136,8 +140,16 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
 			case WIFI_REASON_ASSOC_FAIL:
 				s_latest_disconnect_reason = IOT_ERROR_CONN_STA_ASSOC_FAIL;
 				break;
+			case WIFI_REASON_CONNECTION_FAIL:
+				s_latest_disconnect_reason = IOT_ERROR_CONN_STA_CONN_FAIL;
+				break;
 		}
-		esp_wifi_connect();
+
+		if (s_wifi_connect_timeout == false) {
+			esp_wifi_connect();
+		} else {
+			s_wifi_connect_timeout = false;
+		}
 		xEventGroupClearBits(wifi_event_group, WIFI_STA_CONNECT_BIT);
 		break;
 
@@ -146,6 +158,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
 		IOT_INFO("got ip:%s rssi:%ddBm",
 			ip4addr_ntoa((ip4_addr_t *)&event->event_info.got_ip.ip_info.ip), ap_info.rssi);
 		IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_EVENT_AUTH, ap_info.rssi, 0);
+		s_wifi_connect_timeout = false;
 		xEventGroupSetBits(wifi_event_group, WIFI_STA_CONNECT_BIT);
 		xEventGroupClearBits(wifi_event_group, WIFI_STA_DISCONNECT_BIT);
 		break;
@@ -254,7 +267,8 @@ iot_error_t iot_bsp_wifi_init()
 		return IOT_ERROR_INIT_FAIL;
 	}
 
-	esp_netif_create_default_wifi_sta();
+	g_sta_netif = esp_netif_create_default_wifi_sta();
+	assert(g_sta_netif);
 	esp_netif_create_default_wifi_ap();
 
 	wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -337,10 +351,36 @@ iot_error_t iot_bsp_wifi_set_mode(iot_wifi_conf *conf)
 				return IOT_ERROR_CONN_OPERATE_FAIL;
 			}
 		}
+
+		/* Handles scan request when device connecting to AP has timed out. Waits for
+		 * disconnect or connect event before start scan to prevent scan rejection.
+		 */
+		if (s_wifi_connect_timeout == true) {
+			xEventGroupClearBits(wifi_event_group, WIFI_STA_CONNECT_BIT | WIFI_STA_DISCONNECT_BIT);
+			IOT_INFO("test");
+			uxBits = xEventGroupWaitBits(wifi_event_group,
+				WIFI_STA_DISCONNECT_BIT | WIFI_STA_CONNECT_BIT,
+				true, false, IOT_WIFI_CMD_TIMEOUT);
+
+			if (uxBits & (WIFI_STA_DISCONNECT_BIT | WIFI_STA_CONNECT_BIT)) {
+				IOT_INFO("Ready for wifi scan");
+			} else {
+				IOT_ERROR("Device is busy connecting to AP");
+				IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_TIMEOUT, mode, __LINE__);
+				return IOT_ERROR_CONN_OPERATE_FAIL;
+			}
+		}
 		break;
 
 	case IOT_WIFI_MODE_STATION:
-
+#if defined(CONFIG_STDK_IOT_CORE_EASYSETUP_BLE)
+		esp_ret = esp_wifi_set_mode(WIFI_MODE_NULL);
+		if(esp_ret != ESP_OK) {
+			IOT_ERROR("esp_wifi_set_mode failed err=[%d]", esp_ret);
+			IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_SETMODE_FAIL, conf->mode, esp_ret);
+			return IOT_ERROR_CONN_OPERATE_FAIL;
+		}
+#endif
 		esp_ret = esp_wifi_get_mode(&mode);
 		if(esp_ret != ESP_OK) {
 			IOT_ERROR("esp_wifi_get_mode failed err=[%d]", esp_ret);
@@ -405,17 +445,16 @@ iot_error_t iot_bsp_wifi_set_mode(iot_wifi_conf *conf)
 				true, false, IOT_WIFI_CMD_TIMEOUT);
 		if((uxBits & WIFI_STA_CONNECT_BIT)) {
 			IOT_INFO("AP Connected");
+			s_latest_disconnect_reason = IOT_ERROR_NONE;
 			IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_CONNECT_SUCCESS, 0, 0);
 		}
 		else {
-			iot_error_t err = IOT_ERROR_CONN_CONNECT_FAIL;
-			if (s_latest_disconnect_reason != IOT_ERROR_CONN_CONNECT_FAIL) {
-				err = s_latest_disconnect_reason;
-			}
+			IOT_ERROR("WIFI_STA_CONNECT_BIT event Timeout %d", s_latest_disconnect_reason);
+			IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_CONNECT_FAIL, IOT_WIFI_CMD_TIMEOUT,
+					s_latest_disconnect_reason);
 
-			IOT_ERROR("WIFI_STA_CONNECT_BIT event Timeout %d", err);
-			IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_CONNECT_FAIL, IOT_WIFI_CMD_TIMEOUT, err);
-			return err;
+			s_wifi_connect_timeout = true;
+			return s_latest_disconnect_reason;
 		}
 
 		time(&now);
@@ -585,4 +624,31 @@ iot_wifi_auth_mode_bits_t iot_bsp_wifi_get_auth_mode(void)
 	supported_mode_bits ^= IOT_WIFI_AUTH_MODE_BIT(IOT_WIFI_AUTH_WPA2_ENTERPRISE);
 
 	return supported_mode_bits;
+}
+
+bool iot_bsp_wifi_is_dhcp_success()
+{
+	esp_netif_ip_info_t ip_info;
+	bool result = false;
+	esp_err_t err = ESP_FAIL;
+
+	if (g_sta_netif) {
+		err = esp_netif_get_ip_info(g_sta_netif, &ip_info);
+		if ((err == ESP_OK) && (ip_info.ip.addr != INADDR_ANY)) {
+			result = true;
+			IOT_DEBUG("Wifi station IP Address :" IPSTR ", ", IP2STR(&ip_info.ip));
+		} else {
+			result = false;
+			IOT_ERROR("Invalid wifi station IP address.");
+		}
+	}
+	return result;
+}
+
+iot_error_t iot_bsp_wifi_get_status(void)
+{
+	iot_error_t ret = IOT_ERROR_NONE;
+
+	ret = s_latest_disconnect_reason;
+	return ret;
 }

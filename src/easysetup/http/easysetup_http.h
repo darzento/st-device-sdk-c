@@ -39,8 +39,6 @@ void es_http_init(void);
 
 void es_http_deinit(void);
 
-void es_http_deinit_processing_set(bool flag);
-
 #ifdef __cplusplus
 }
 #endif

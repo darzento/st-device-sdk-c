@@ -17,6 +17,7 @@ elseif(CONFIG_STDK_IOT_CORE_EASYSETUP_BLE)
         )
 endif()
 
+if(CONFIG_STDK_IOT_CORE_EASYSETUP_HTTP)
 if(CONFIG_STDK_IOT_CORE_EASYSETUP_X509)
     set(EASYSETUP_D2D_SOURCES
         "${EASYSETUP_D2D_SOURCES}"
@@ -29,6 +30,7 @@ else()
         http/tcp/iot_easysetup_d2d_tcp.c
         http/tcp/iot_easysetup_httpd.c
     )
+endif()
 endif()
 
 if(CONFIG_STDK_IOT_CORE_EASYSETUP_DISCOVERY_SSID)

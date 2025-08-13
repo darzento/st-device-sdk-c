@@ -25,6 +25,12 @@ extern "C" {
 
 #include "iot_error.h"
 
+#if !defined(CONFIG_STDK_IOT_CORE_EASYSETUP_X509)
+#define HASH_SERIAL_NUMBER_HYBRID_PORTION 4
+#define PLAIN_SERIAL_NUMBER_HYBRID_PORTION 4
+#define HYBRID_SERIAL_NUMBER_SIZE (HASH_SERIAL_NUMBER_HYBRID_PORTION + PLAIN_SERIAL_NUMBER_HYBRID_PORTION)
+#endif
+
 typedef enum {
        IOT_BLE_EVENT_GATT_JOIN,
        IOT_BLE_EVENT_GATT_LEAVE,
@@ -37,6 +43,7 @@ void iot_bsp_ble_init(CharWriteCallback cb);
 void iot_bsp_ble_deinit(void);
 uint32_t iot_bsp_ble_get_mtu(void);
 void iot_bsp_gatt_init(bool wifi_update_enabled);
+void iot_bsp_ble_set_onboarding_completion(bool onboarding_complete);
 void iot_create_advertise_packet(char *mnid, char *setupid, char *serial);
 void iot_create_scan_response_packet(char *device_onboarding_id, char *serial);
 int iot_send_indication(uint8_t *buf, uint32_t len);

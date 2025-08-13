@@ -38,30 +38,35 @@ extern "C" {
 #include "st_dev.h"
 #include "iot_mqtt_packet.h"
 #include "iot_os_util.h"
+#include "port_net.h"
 
 #define MQTT_PUB_NOCOPY					1
 
 #define MAX_PACKET_ID 					65535 	/* according to the MQTT specification - do not change! */
 #define MAX_MESSAGE_HANDLERS 			5 		/* redefinable - how many subscriptions do you want? */
 #define DEFAULT_COMMNAD_TIMEOUT 		30000
-#define MQTT_PUBLISH_RETRY 				3
-#define MQTT_PING_RETRY 				3
-#define MQTT_WRITE_TIMEOUT				10000	/* in ms*/
-#define MQTT_READ_TIMEOUT				10000	/* in ms*/
+#define MQTT_PUBLISH_RETRY 				5
+#define MQTT_PING_RETRY 				5
+#define MQTT_WRITE_TIMEOUT				15000	/* in ms*/
+#define MQTT_READ_TIMEOUT				15000	/* in ms*/
 #define MQTT_RETRY_TIMEOUT				12000	/* in ms*/
-#define MQTT_CONNECT_TIMEOUT			20000	/* in ms*/
-#define MQTT_ACKPENDING_WAITCYCLE_IN_SYNC_FUNCTION			50		/* in ms*/
+#define MQTT_CONNECT_TIMEOUT			30000	/* in ms*/
+#define MQTT_ACKPENDING_WAITCYCLE_IN_SYNC_FUNCTION			200		/* in ms*/
 
 #define MQTT_DISCONNECT_MAX_SIZE		5
 #define MQTT_PUBACK_MAX_SIZE			5
 #define MQTT_PINGREQ_MAX_SIZE			5
 
-#define MQTT_TASK_STACK_SIZE 			2048
+#define MQTT_TASK_STACK_SIZE 			(1024*6)
 #define MQTT_TASK_PRIORITY 				4
-#define MQTT_TASK_CYCLE 				100
 
 #define MQTT_CLIENT_STRUCT_MAGIC_NUMBER	0x19890107
 
+#define MQTT_MAIN_HTREAD_EVENT_KILL	(1 << 0)
+#define MQTT_MAIN_HTREAD_EVENT_PENDING_WORK	(1 << 1)
+#define MQTT_MAIN_THREAD_EVENT_ALL	(MQTT_MAIN_HTREAD_EVENT_KILL | MQTT_MAIN_HTREAD_EVENT_PENDING_WORK)
+
+#define STDK_MQTT_TASK
 enum packet_chunk_state {
 	PACKET_CHUNK_INIT,
 	PACKET_CHUNK_WRITE_PENDING,
@@ -72,6 +77,8 @@ enum packet_chunk_state {
 	PACKET_CHUNK_ACKNOWLEDGED,
 	PACKET_CHUNK_TIMEOUT,
 	PACKET_CHUNK_QUEUE_DESTROYED,
+	EVENT_CHUNK_CONNECTED,
+	EVENT_CHUNK_DISCONNECTED,
 };
 
 // Owner of packet chunk can be creator or caller of pop_queue()
@@ -85,7 +92,7 @@ typedef struct iot_mqtt_packet_chunk {
 	unsigned int chunk_id;
 	int chunk_state;
 
-	iot_os_timer expiry_time;
+	iot_os_timer_handle expiry_time;
 	int retry_count;
 
 	unsigned char have_owner;
@@ -109,11 +116,15 @@ typedef struct MQTTClient {
 	st_mqtt_event_callback user_callback_fp;
 	void *user_callback_user_data;
 
-	iot_net_interface_t *net;
-	iot_os_timer last_sent, last_received;
+	PORT_NET_CONTEXT net_ctx;
+	iot_os_timer_handle last_sent, last_received;
 
 	iot_os_mutex client_manage_lock;
-	iot_os_thread thread;
+#if defined(STDK_MQTT_TASK)
+	iot_os_thread main_thread;
+	iot_os_eventgroup *main_thread_events;
+	iot_os_thread socket_thread;
+#endif
 
 	struct iot_mqtt_packet_chunk *ping_packet;
 

@@ -24,7 +24,7 @@
 #include "iot_bsp_wifi.h"
 
 #define IOT_TASK_NAME "iot-task"
-#define IOT_TASK_STACK_SIZE (1024*5)
+#define IOT_TASK_STACK_SIZE (1024*7)
 #define IOT_TASK_PRIORITY (4)
 #define IOT_QUEUE_LENGTH (10)
 
@@ -63,7 +63,7 @@
 #define IOT_PUB_TOPIC_DELETE	"/v1/devices/delete"
 
 /* MQTT Pre-defined constant */
-#define IOT_DEFAULT_TIMEOUT 		12000	/* milli-seconds */
+#define IOT_DEFAULT_TIMEOUT 		15000	/* milli-seconds */
 #define IOT_MQTT_KEEPALIVE_INTERVAL	120		/* seconds */
 
 /**
@@ -89,6 +89,15 @@ typedef enum {
  */
 iot_error_t iot_command_send(struct iot_context *ctx,
 	enum iot_command_type cmd_type, const void *param, int param_size);
+
+/**
+ * @brief       wifi status check
+ * @details     this function check wifi connection status
+ * @param[in]   ctx                                     iot-core context
+ * @retval      IOT_ERROR_NONE                  success.
+ * @retval      IOT_ERROR_NV_DATA_ERROR         data set/get failed
+ */
+iot_error_t iot_wifi_get_status(struct iot_context *ctx);
 
 /**
  * @brief	send wifi control request

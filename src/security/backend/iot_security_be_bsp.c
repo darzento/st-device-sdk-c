@@ -17,6 +17,7 @@
  ****************************************************************************/
 
 #include <string.h>
+#include <stdio.h>
 
 #include "iot_main.h"
 #include "iot_debug.h"

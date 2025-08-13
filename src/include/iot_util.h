@@ -200,6 +200,14 @@ iot_error_t iot_util_convert_mac_str(struct iot_mac* mac, char* str, int max_sz)
  */
 uint16_t iot_util_convert_channel_freq(uint8_t channel);
 
+/**
+ * @brief	To convert Wi-Fi frequency into channel value
+ * @details	This function tries to convert from the frequency to channel
+ * @param[in]	Wi-Fi frequency
+ * @return	Wi-Fi channel
+ */
+uint8_t iot_util_convert_freq_channel(uint16_t freq);
+
 #ifdef __cplusplus
 }
 #endif

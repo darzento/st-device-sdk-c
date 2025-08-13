@@ -27,6 +27,7 @@
  *
  ******************************************************************/
 
+#include <limits.h>
 #include <string.h>
 #include <ctype.h>
 #include "easysetup_http.h"
