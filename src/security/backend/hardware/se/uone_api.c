@@ -128,16 +128,16 @@ uint8_t uone_i2c_init (void)
 	}
 
 	// Create Binary Semaphore
-	xSemaphore = xSemaphoreCreateBinary();
-	if ( xSemaphore == NULL ) {
-		//UONE_DEBUG_LOG("\n[SYSTEM] Failed to Create Semaphore.!\n", NULL, DEBUG_LEVEL_UONE);
-		return UONE_SEMAPHORE_CREATE_ERROR;
-	}
+	// xSemaphore = xSemaphoreCreateBinary();
+	// if ( xSemaphore == NULL ) {
+	// 	//UONE_DEBUG_LOG("\n[SYSTEM] Failed to Create Semaphore.!\n", NULL, DEBUG_LEVEL_UONE);
+	// 	return UONE_SEMAPHORE_CREATE_ERROR;
+	// }
 
-	// Releasing the Semaphtore Initially
-	if ( !xSemaphoreGive(xSemaphore) ) {
-		return UONE_SEMAPHORE_GIVE_ERROR;
-	}
+	// // Releasing the Semaphtore Initially
+	// if ( !xSemaphoreGive(xSemaphore) ) {
+	// 	return UONE_SEMAPHORE_GIVE_ERROR;
+	// }
 
 	esp_err_t err = 0;
 
@@ -249,7 +249,7 @@ uint8_t uone_i2c_deinit (void)
 	}
 
 	// Delete the Semaphore
-	vSemaphoreDelete(xSemaphore);
+	// vSemaphoreDelete(xSemaphore);
 
 	esp_err_t err = 0;
 

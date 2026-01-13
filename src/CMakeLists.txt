@@ -86,4 +86,5 @@ target_include_directories(iotcore
 target_link_libraries(iotcore
         PRIVATE
         ${STDK_LINK_LIBRARY}
+        idf::mqtt
         )

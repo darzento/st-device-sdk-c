@@ -32,7 +32,7 @@
 
 #define BUFFER_ALLOC_MARGIN		10
 
-#define TEST
+// #define TEST
 
 typedef struct iot_security_be_cert2storage_id_map {
 	iot_security_cert_id_t cert_id;

@@ -459,7 +459,7 @@ iot_error_t iot_bsp_wifi_init()
 		return IOT_ERROR_INIT_FAIL;
 	}
 
-	esp_ret = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+	esp_ret = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
 	if(esp_ret != ESP_OK) {
 		IOT_ERROR("esp_wifi_set_storage failed err=[%d]", esp_ret);
 		IOT_DUMP(IOT_DEBUG_LEVEL_ERROR, IOT_DUMP_BSP_WIFI_INIT_FAIL, esp_ret, __LINE__);
@@ -524,7 +524,7 @@ iot_error_t iot_bsp_wifi_set_mode(iot_wifi_conf *conf)
 		}
 
 		if(mode == WIFI_MODE_NULL) {
-			wifi_config.sta.listen_interval = 80;
+			wifi_config.sta.listen_interval = 140;
 			ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 			ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
 			// ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40));
@@ -627,7 +627,7 @@ iot_error_t iot_bsp_wifi_set_mode(iot_wifi_conf *conf)
 			wifi_config.sta.pmf_cfg.required = false;
 		}
 		s_latest_disconnect_reason = IOT_ERROR_CONN_CONNECT_FAIL;
-		wifi_config.sta.listen_interval = 80;
+		wifi_config.sta.listen_interval = 140;
 		// wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
 		ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 		ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
@@ -638,6 +638,8 @@ iot_error_t iot_bsp_wifi_set_mode(iot_wifi_conf *conf)
 		if (esp_wifi_set_inactive_time(WIFI_IF_STA, 40) != ESP_OK) {
 			IOT_ERROR("esp_wifi_set_inactive_time failed");
 		}
+
+		esp_wifi_set_max_tx_power(34);
 
 		IOT_INFO("connect to ap SSID:%s", wifi_config.sta.ssid);
 

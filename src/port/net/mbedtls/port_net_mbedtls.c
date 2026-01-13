@@ -346,13 +346,13 @@ PORT_NET_CONTEXT port_net_listen(char *port, port_net_tls_config *config)
 			IOT_INFO("socket set keep-alive failed %d", errno);
 		}
 
-		int idle = 10;
+		int idle = 600;
 		ret = setsockopt(new_net_context->sock_fd.fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(int));
 		if (ret < 0) {
 			IOT_INFO("socket set keep-idle failed %d", errno);
 		}
 
-		int interval = 5;
+		int interval = 75;
 		ret = setsockopt(new_net_context->sock_fd.fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(int));
 		if (ret < 0) {
 			IOT_INFO("socket set keep-interval failed %d", errno);

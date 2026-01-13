@@ -288,7 +288,7 @@ uint8_t uone_i2c_init (void);
 
 uint8_t uone_i2c_deinit (void);
 
-void uone_mutex_init(void);
+uint8_t uone_mutex_init(void);
 
 void uone_mutex_deinit(void);
 

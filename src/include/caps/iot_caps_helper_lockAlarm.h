@@ -35,6 +35,7 @@ enum {
     CAP_ENUM_LOCKALARM_ALARM_VALUE_HIGHTEMP,
     CAP_ENUM_LOCKALARM_ALARM_VALUE_ATTEMPTSEXCEEDED,
     CAP_ENUM_LOCKALARM_ALARM_VALUE_PHYSICALIMPACT,
+    CAP_ENUM_LOCKALARM_ALARM_VALUE_FAILEDOPENING,
     CAP_ENUM_LOCKALARM_ALARM_VALUE_MAX
 };
 
@@ -54,6 +55,7 @@ const static struct iot_caps_lockAlarm {
         const char *value_high_temp;
         const char *value_attempts_exceeded;
         const char *value_physical_impact;
+        const char *value_failed_opening;
     } attr_alarm;
 } caps_helper_lockAlarm = {
     .id = "lockAlarm",
@@ -61,7 +63,7 @@ const static struct iot_caps_lockAlarm {
         .name = "alarm",
         .property = ATTR_SET_VALUE_REQUIRED,
         .valueType = VALUE_TYPE_STRING,
-        .values = {"clear", "lockFactoryReset", "damaged", "forcedOpeningAttempt","unableToLockTheDoor","notClosedForALongTime","highTemperature","attemptsExceeded","physicalImpact"},
+        .values = {"clear", "lockFactoryReset", "damaged", "forcedOpeningAttempt","unableToLockTheDoor","notClosedForALongTime","highTemperature","attemptsExceeded","physicalImpact","failedOpeningAttempt"},
         .value_clear = "clear",
         .value_lock_reset = "lockFactoryReset",
         .value_damaged = "damaged",
@@ -71,6 +73,7 @@ const static struct iot_caps_lockAlarm {
         .value_high_temp = "highTemperature",
         .value_attempts_exceeded = "attemptsExceeded",
         .value_physical_impact = "physicalImpact",
+        .value_failed_opening = "failedOpeningAttempt",
     },
 };
 
